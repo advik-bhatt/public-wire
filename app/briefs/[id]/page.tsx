@@ -125,6 +125,16 @@ export default async function BriefPage({ params }: BriefPageProps) {
                     Published artifact
                   </div>
                   <p className="text-sm text-neutral-200">{brief.artifactLabel}</p>
+                  {brief.publishedUrl && (
+                    <a
+                      href={brief.publishedUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-3 inline-flex items-center gap-2 text-xs uppercase tracking-[0.16em] border border-white/30 px-3 py-2 hover:bg-white hover:text-black transition-colors"
+                    >
+                      View on cited.md <ExternalLink className="size-3" />
+                    </a>
+                  )}
                 </div>
                 <div className="border border-black/10 p-6">
                   <div className="text-[0.65rem] uppercase tracking-[0.2em] text-neutral-500 mb-3">

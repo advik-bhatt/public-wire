@@ -319,7 +319,8 @@ export async function nimbleRunCivicScan(params: {
       },
     };
 
-    const result = await (nimble.search as (params: Record<string, unknown>) => Promise<unknown>)({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await (nimble.search as any)({
       query: requestedTopic
         ? `For ${params.area}, investigate this local civic topic or claim: "${requestedTopic}". Find official or public sources that support, contradict, or fail to corroborate it. Prioritize township notices, municipal pages, construction, road closures, public works, transit alerts, parking authority updates, school notices, permits, utility notices, council agendas, agency pages, and local public records. Exclude private-person claims, unsupported crime claims, opinion, and speculation.`
         : `For ${params.area}, find official or public civic sources and recent resident-relevant updates. Prioritize township notices, municipal pages, construction, road closures, public works, transit alerts, parking authority updates, school notices, permits, utility notices, and council agendas. Exclude rumors, private-person claims, unsupported crime claims, and opinion.`,

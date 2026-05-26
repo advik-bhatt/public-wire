@@ -681,6 +681,16 @@ function InvestigationDialog({
                     Public artifact
                   </div>
                   <p className="text-sm text-neutral-200">{brief.artifactLabel}</p>
+                  {brief.publishedUrl && (
+                    <a
+                      href={brief.publishedUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-3 inline-flex items-center gap-2 text-xs uppercase tracking-[0.16em] border border-white/30 px-3 py-2 hover:bg-white hover:text-black transition-colors"
+                    >
+                      View on cited.md <ExternalLink className="size-4" />
+                    </a>
+                  )}
                 </div>
 
                 <div className="mt-8 border-t border-white/15 pt-6">

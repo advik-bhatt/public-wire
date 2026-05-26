@@ -72,7 +72,7 @@ export async function queryPriorEvents(area: string): Promise<{ count: number; l
       query_params: { area_pattern: `%${shortArea}%` },
       format: "JSONEachRow",
     });
-    const rows = await result.json<{ count: string; last_seen: string }[]>();
+    const rows = await result.json<{ count: string; last_seen: string }>();
     const row = rows[0];
     return {
       count: parseInt(row?.count || "0", 10),
