@@ -63,6 +63,21 @@ export async function ensureClickHouseTables() {
     `,
   });
 
+  await client.exec({
+    query: `
+      CREATE TABLE IF NOT EXISTS publicwire_change_hashes (
+        hash String,
+        area String,
+        headline String,
+        session_id String,
+        created_at DateTime64(3)
+      )
+      ENGINE = MergeTree
+      ORDER BY (area, hash, created_at)
+      TTL created_at + INTERVAL 7 DAY
+    `,
+  });
+
   tablesEnsured = true;
   return { enabled: true };
 }
@@ -144,4 +159,56 @@ export async function logRecallFormRun(params: {
     enabled: true,
     message: "ClickHouse audit ledger updated.",
   };
+}
+
+export async function filterSeenHashes(
+  hashes: string[],
+  windowHours = 6
+): Promise<Set<string>> {
+  if (!client || hashes.length === 0) return new Set();
+
+  try {
+    await ensureClickHouseTables();
+    const result = await client.query({
+      query: `
+        SELECT hash
+        FROM publicwire_change_hashes
+        WHERE hash IN ({hashes:Array(String)})
+          AND created_at > now() - INTERVAL {window:UInt32} HOUR
+      `,
+      query_params: { hashes, window: windowHours },
+      format: "JSONEachRow",
+    });
+    const rows = await result.json<{ hash: string }>();
+    return new Set(rows.map((r) => r.hash));
+  } catch {
+    // Fail open: if the dedup check errors, allow all candidates through
+    return new Set();
+  }
+}
+
+export async function recordChangeHashes(params: {
+  sessionId: string;
+  area: string;
+  hashes: { hash: string; headline: string }[];
+}): Promise<void> {
+  if (!client || params.hashes.length === 0) return;
+
+  try {
+    await ensureClickHouseTables();
+    const now = new Date().toISOString();
+    await client.insert({
+      table: "publicwire_change_hashes",
+      values: params.hashes.map(({ hash, headline }) => ({
+        hash,
+        area: params.area,
+        headline,
+        session_id: params.sessionId,
+        created_at: now,
+      })),
+      format: "JSONEachRow",
+    });
+  } catch {
+    // Non-fatal: recording failure should not block publication
+  }
 }

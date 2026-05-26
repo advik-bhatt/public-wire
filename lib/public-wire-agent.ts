@@ -1,5 +1,6 @@
+import { createHash } from "crypto";
 import { localSources, seededChanges, type CivicBrief, type LocalChange, type LocalSource } from "./public-wire-data";
-import { logRecallFormRun, queryPriorEvents } from "./clickhouse";
+import { filterSeenHashes, logRecallFormRun, queryPriorEvents, recordChangeHashes } from "./clickhouse";
 import { nimbleRunCivicScan } from "./sponsors/nimble-civic";
 import { publishCivicBrief } from "./sponsors/senso-civic";
 import { googleEditorialDecision } from "./sponsors/google-editor";
@@ -25,6 +26,12 @@ function titleCase(input: string) {
     .filter(Boolean)
     .map((part) => part[0]?.toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function changeHash(area: string, title: string): string {
+  return createHash("sha256")
+    .update(area.toLowerCase().trim() + "\0" + title.toLowerCase().trim())
+    .digest("hex");
 }
 
 function isNewBrunswick(area: string) {
@@ -194,7 +201,7 @@ export async function runPublicWireScan(params?: {
     : null;
   const changes = requestedChange ? [requestedChange, ...baseChanges] : baseChanges;
   let published = changes.filter((change) => change.status !== "rejected");
-  const rejected = changes.filter((change) => change.status === "rejected");
+  let rejected = changes.filter((change) => change.status === "rejected");
 
   // Step 2: Change Detector — ClickHouse queries prior event history for this area
   const priorContext = await traceStep(
@@ -249,12 +256,43 @@ export async function runPublicWireScan(params?: {
     },
   ];
 
+  // Step 2b: Dedup filter — ClickHouse checks content hashes against recently published changes
+  const changeHashMap = new Map(
+    published.map((c) => [c.id, changeHash(area, c.title)])
+  );
+
+  const seenHashes = await traceStep(
+    "clickhouse.dedup_check",
+    { area, slug, sponsor: "clickhouse", candidate_count: published.length },
+    () => filterSeenHashes(Array.from(changeHashMap.values()))
+  );
+
+  const dupRejected: LocalChange[] = published
+    .filter((c) => seenHashes.has(changeHashMap.get(c.id)!))
+    .map((c) => ({ ...c, status: "rejected" as const, rejectionReason: "Duplicate: already published within the last 6 hours." }));
+  const dupCount = dupRejected.length;
+
+  published = published.filter((c) => !seenHashes.has(changeHashMap.get(c.id)!));
+  rejected = [...rejected, ...dupRejected];
+
+  events.push({
+    step: events.length + 1,
+    title: "Dedup filter applied",
+    detail: dupCount > 0
+      ? `ClickHouse blocked ${dupCount} candidate${dupCount === 1 ? "" : "s"} already published within the last 6 hours.`
+      : `ClickHouse confirmed all ${published.length} candidate${published.length === 1 ? "" : "s"} are new within the last 6 hours.`,
+    source: "ClickHouse",
+    risk: "low",
+    status: "done",
+  });
+
   const officialSources = sources.filter((source) => source.sourceType === "official").length;
   const metrics = {
     sourcesChecked: sources.length,
     changesDetected: changes.length,
     briefsPublished: published.length > 0 ? 1 : 0,
     rejectedItems: rejected.length,
+    duplicatesFiltered: dupCount,
     officialSources,
     confidenceScore: 0, // updated after Lapdog runs, before ledger write
   };
@@ -420,6 +458,17 @@ export async function runPublicWireScan(params?: {
     risk: "medium",
     status: sensoPublish.publishedUrl || sensoPublish.citationId ? "done" : "warn",
   });
+
+  // Record the content hash for the published change so future scans within the
+  // dedup window skip it. Done after Senso publish so only successfully grounded
+  // briefs are recorded (Gemini-held or verifier-failed changes are not recorded).
+  if (resolvedChange) {
+    await recordChangeHashes({
+      sessionId,
+      area,
+      hashes: [{ hash: changeHash(area, resolvedChange.title), headline: resolvedChange.title }],
+    });
+  }
 
   const rawSourceText = nimble.raw
     ? JSON.stringify(nimble.raw, null, 2).slice(0, 8000)
