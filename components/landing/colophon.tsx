@@ -34,8 +34,18 @@ export function Colophon() {
                 >
                   New Brunswick
                 </Link>
-                <span className="text-neutral-500 text-sm sm:text-base">Newark · soon</span>
-                <span className="text-neutral-500 text-sm sm:text-base">Jersey City · soon</span>
+                <Link
+                  href="/local/newark"
+                  className="text-white hover:text-neutral-400 transition-colors duration-300 text-sm sm:text-base"
+                >
+                  Newark
+                </Link>
+                <Link
+                  href="/local/jersey-city"
+                  className="text-white hover:text-neutral-400 transition-colors duration-300 text-sm sm:text-base"
+                >
+                  Jersey City
+                </Link>
               </div>
               <div className="flex flex-col gap-1 sm:gap-2">
                 <h3 className="mb-2 uppercase text-neutral-400 text-xs sm:text-sm tracking-[0.22em]">
