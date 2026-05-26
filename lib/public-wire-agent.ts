@@ -247,31 +247,16 @@ export async function runPublicWireScan(params?: {
       risk: "low",
       status: "done",
     },
-    {
-      step: 5,
-      title: "Gemini editorial decision made",
-      detail: "Gemini evaluated whether the detected civic change should be published, rejected, or flagged.",
-      source: "Google Gemini",
-      risk: "medium",
-      status: "done",
-    },
-    {
-      step: 6,
-      title: "Grounded brief generated",
-      detail: "Senso/cited publishing layer created a short source-backed civic brief.",
-      source: "Senso",
-      risk: "medium",
-      status: "done",
-    },
   ];
 
+  const officialSources = sources.filter((source) => source.sourceType === "official").length;
   const metrics = {
     sourcesChecked: sources.length,
     changesDetected: changes.length,
     briefsPublished: published.length > 0 ? 1 : 0,
     rejectedItems: rejected.length,
-    officialSources: sources.filter((source) => source.sourceType === "official").length,
-    confidenceScore: 94,
+    officialSources,
+    confidenceScore: 0, // filled in after lapdogReview
   };
 
   // Step 3: Ledger write — ClickHouse records this scan's events and metrics
@@ -296,6 +281,15 @@ export async function runPublicWireScan(params?: {
         change: published[0],
       })
   );
+
+  events.push({
+    step: events.length + 1,
+    title: "Gemini editorial decision made",
+    detail: `Gemini ${googleEditorial.decision.publishable ? "approved" : "held"} the change as "${googleEditorial.decision.classification}". ${googleEditorial.decision.reason}`,
+    source: "Google Gemini",
+    risk: "medium",
+    status: googleEditorial.decision.publishable ? "done" : "warn",
+  });
 
   // Step 5: Verifier — if the claim is unsupported, resend to Nimble for corroboration
   let verifierResend: null | {
@@ -430,6 +424,15 @@ export async function runPublicWireScan(params?: {
       })
   );
 
+  events.push({
+    step: events.length + 1,
+    title: "Grounded brief published",
+    detail: `Senso published the brief. Mode: ${sensoPublish.mode}.${sensoPublish.publishedUrl ? ` URL: ${sensoPublish.publishedUrl}` : ""}`,
+    source: "Senso",
+    risk: "medium",
+    status: sensoPublish.publishedUrl || sensoPublish.citationId ? "done" : "warn",
+  });
+
   // Step 9: Reliability Reviewer — Lapdog audits the published brief
   const lapdogReview = await traceStep(
     "lapdog.reliability_review",
@@ -444,6 +447,9 @@ export async function runPublicWireScan(params?: {
         events,
       })
   );
+
+  // confidenceScore derived from Lapdog's reliability audit score (0–100)
+  metrics.confidenceScore = lapdogReview.score;
 
   // Audit Translator: converts the machine event log into reader-facing plain English
   const auditLog = events.map(

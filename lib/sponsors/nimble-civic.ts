@@ -133,6 +133,60 @@ function buildLiveSearchSource(area: string, raw: unknown): LocalSource {
   };
 }
 
+// Tries to use Nimble's output_schema response directly before falling back to Gemini.
+// Nimble returns structured data when the API honors output_schema; this makes it the
+// actual extraction primitive rather than just a search bar.
+function tryParseNimbleStructured(
+  raw: unknown,
+  area: string
+): { sources: LocalSource[]; changes: LocalChange[] } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+
+  if (!Array.isArray(r.sources) || !Array.isArray(r.changes)) return null;
+  if (r.sources.length === 0 && r.changes.length === 0) return null;
+
+  const sources: LocalSource[] = (r.sources as any[]).slice(0, 8).map((source, index) => ({
+    id: slugify(source.id || source.name || `source_${index + 1}`) || `source_${index + 1}`,
+    name: String(source.name || `Public source for ${area}`).slice(0, 140),
+    url: String(source.url || "Nimble Search API result").slice(0, 300),
+    category: sourceCategory(source.category),
+    sourceType: source.sourceType === "official" ? "official" : "public",
+  }));
+
+  if (sources.length === 0) return null;
+
+  const sourceIds = new Set(sources.map((s) => s.id));
+  const defaultSourceId = sources[0].id;
+
+  const changes: LocalChange[] = (r.changes as any[])
+    .slice(0, 5)
+    .map((change, index) => {
+      const rawSourceId = slugify(change.sourceId || "");
+      const sourceId = sourceIds.has(rawSourceId) ? rawSourceId : defaultSourceId;
+      return {
+        id: slugify(change.id || change.title || `change_${index + 1}`) || `change_${index + 1}`,
+        sourceId,
+        title: String(change.title || `Civic update for ${area}`).slice(0, 180),
+        category: changeCategory(change.category),
+        status: status(change.status),
+        importance: importance(change.importance),
+        whatChanged: String(change.whatChanged || "").slice(0, 500),
+        whyItMatters: String(change.whyItMatters || "").slice(0, 500),
+        whoIsAffected: Array.isArray(change.whoIsAffected)
+          ? change.whoIsAffected.map((item: unknown) => String(item).slice(0, 80)).slice(0, 8)
+          : ["residents"],
+        evidence: Array.isArray(change.evidence)
+          ? change.evidence.map((item: unknown) => String(item).slice(0, 300)).slice(0, 6)
+          : ["Extracted via Nimble output_schema structured extraction."],
+        rejectionReason: change.rejectionReason ? String(change.rejectionReason).slice(0, 300) : undefined,
+      };
+    })
+    .filter((c) => c.whatChanged && c.whyItMatters);
+
+  return { sources, changes };
+}
+
 async function extractChangesWithGemini(params: {
   area: string;
   requestedTopic?: string;
@@ -329,6 +383,22 @@ export async function nimbleRunCivicScan(params: {
       output_schema: nimbleCivicSchema,
     });
 
+    const nimbleStructured = tryParseNimbleStructured(result, params.area);
+
+    if (nimbleStructured) {
+      return {
+        provider: "Nimble",
+        mode: "real-api",
+        purpose: requestedTopic
+          ? "Nimble output_schema structured extraction for requested-topic civic investigation."
+          : "Nimble output_schema structured extraction for civic source discovery.",
+        sources: nimbleStructured.sources,
+        changes: nimbleStructured.changes,
+        raw: result,
+      };
+    }
+
+    // Nimble returned unstructured text — Gemini parses it as the extraction fallback.
     const extracted = await extractChangesWithGemini({
       area: params.area,
       requestedTopic,
@@ -339,8 +409,8 @@ export async function nimbleRunCivicScan(params: {
       provider: "Nimble",
       mode: "real-api",
       purpose: requestedTopic
-        ? "Real Nimble Search API call and Gemini extraction for requested-topic civic investigation."
-        : "Real Nimble Search API call and Gemini extraction for searched-township civic source discovery.",
+        ? "Nimble search + Gemini extraction for requested-topic civic investigation."
+        : "Nimble search + Gemini extraction for civic source discovery.",
       sources: extracted.sources,
       changes: extracted.changes,
       raw: result,
