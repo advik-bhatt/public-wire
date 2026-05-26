@@ -61,6 +61,28 @@ export async function ensureClickHouseTables() {
   return { enabled: true };
 }
 
+export async function queryPriorEvents(area: string): Promise<{ count: number; lastSeen: string | null }> {
+  if (!client) return { count: 0, lastSeen: null };
+
+  try {
+    await ensureClickHouseTables();
+    const shortArea = area.split(",")[0].trim();
+    const result = await client.query({
+      query: `SELECT COUNT(*) as count, MAX(created_at) as last_seen FROM publicwire_events WHERE ilike(detail, {area_pattern:String})`,
+      query_params: { area_pattern: `%${shortArea}%` },
+      format: "JSONEachRow",
+    });
+    const rows = await result.json<{ count: string; last_seen: string }[]>();
+    const row = rows[0];
+    return {
+      count: parseInt(row?.count || "0", 10),
+      lastSeen: row?.last_seen || null,
+    };
+  } catch {
+    return { count: 0, lastSeen: null };
+  }
+}
+
 export async function logRecallFormRun(params: {
   sessionId: string;
   events: EventToLog[];

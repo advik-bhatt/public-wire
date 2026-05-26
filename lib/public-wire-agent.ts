@@ -1,9 +1,11 @@
 import { localSources, seededChanges, type CivicBrief, type LocalChange, type LocalSource } from "./public-wire-data";
-import { logRecallFormRun } from "./clickhouse";
+import { logRecallFormRun, queryPriorEvents } from "./clickhouse";
 import { nimbleRunCivicScan } from "./sponsors/nimble-civic";
 import { publishCivicBrief } from "./sponsors/senso-civic";
 import { googleEditorialDecision } from "./sponsors/google-editor";
 import { runLapdogReliabilityReview } from "./sponsors/lapdog-review";
+import { runWriterAgent } from "./sponsors/writer-agent";
+import { runMentorReview } from "./sponsors/mentor-agent";
 import { traceStep } from "./datadog-trace";
 
 function slugify(input: string) {
@@ -92,6 +94,7 @@ function buildDynamicBrief(params: {
   area: string;
   change: LocalChange | undefined;
   sources: LocalSource[];
+  writerProse?: string;
   events: {
     step: number;
     title: string;
@@ -108,7 +111,7 @@ function buildDynamicBrief(params: {
     };
   };
 }): CivicBrief {
-  const { area, change, sources, events, googleEditorial } = params;
+  const { area, change, sources, events, googleEditorial, writerProse } = params;
 
   if (!change) {
     return {
@@ -138,7 +141,7 @@ function buildDynamicBrief(params: {
       change.category === "event"
         ? "upcoming"
         : "active",
-    summary: change.whatChanged,
+    summary: writerProse || change.whatChanged,
     whyItMatters: change.whyItMatters,
     whoIsAffected: change.whoIsAffected,
     sources: sourcePacketForChange(change, sources),
@@ -167,6 +170,7 @@ export async function runPublicWireScan(params?: {
   const focus = params?.focus || [];
   const requestedTopic = params?.requestedTopic?.trim();
 
+  // Step 1: Source Scout + Extractor — Nimble with output_schema for structured civic extraction
   const nimble = await traceStep(
     "nimble.civic_scan",
     { area, slug, focus: focus.join(","), requested_topic: requestedTopic, sponsor: "nimble" },
@@ -189,10 +193,28 @@ export async function runPublicWireScan(params?: {
       })
     : null;
   const changes = requestedChange ? [requestedChange, ...baseChanges] : baseChanges;
-  const published = changes.filter((change) => change.status !== "rejected");
+  let published = changes.filter((change) => change.status !== "rejected");
   const rejected = changes.filter((change) => change.status === "rejected");
 
-  const events = [
+  // Step 2: Change Detector — ClickHouse queries prior event history for this area
+  const priorContext = await traceStep(
+    "clickhouse.change_detector",
+    { area, slug, sponsor: "clickhouse" },
+    () => queryPriorEvents(area)
+  );
+
+  const priorContextLabel = priorContext.count > 0
+    ? `ClickHouse found ${priorContext.count} prior event${priorContext.count === 1 ? "" : "s"} for ${shortArea(area)}. Last scan: ${priorContext.lastSeen ?? "unknown"}.`
+    : `No prior events in ClickHouse for ${shortArea(area)}. First scan recorded.`;
+
+  const events: {
+    step: number;
+    title: string;
+    detail: string;
+    source: string;
+    risk: string;
+    status: string;
+  }[] = [
     {
       step: 1,
       title: "Source discovery started",
@@ -204,7 +226,7 @@ export async function runPublicWireScan(params?: {
     {
       step: 2,
       title: "Civic sources extracted",
-      detail: `Nimble returned ${sources.length} monitorable civic sources.`,
+      detail: `Nimble returned ${sources.length} monitorable civic sources using output_schema structured extraction.`,
       source: "Nimble",
       risk: "low",
       status: "done",
@@ -219,8 +241,8 @@ export async function runPublicWireScan(params?: {
     },
     {
       step: 4,
-      title: "Changes compared",
-      detail: "ClickHouse compares current source state against previous snapshots and publish history.",
+      title: "Change detection complete",
+      detail: priorContextLabel,
       source: "ClickHouse",
       risk: "low",
       status: "done",
@@ -252,6 +274,7 @@ export async function runPublicWireScan(params?: {
     confidenceScore: 94,
   };
 
+  // Step 3: Ledger write — ClickHouse records this scan's events and metrics
   const clickhouse = await traceStep(
     "clickhouse.ledger_write",
     { area, slug, session_id: sessionId, sponsor: "clickhouse" },
@@ -263,6 +286,7 @@ export async function runPublicWireScan(params?: {
       })
   );
 
+  // Step 4: Editor — Gemini decides if the top candidate is publishable
   const googleEditorial = await traceStep(
     "gemini.editorial_decision",
     { area, slug, sponsor: "google_gemini", candidate_count: published.length },
@@ -273,14 +297,130 @@ export async function runPublicWireScan(params?: {
       })
   );
 
+  // Step 5: Verifier — if the claim is unsupported, resend to Nimble for corroboration
+  let verifierResend: null | {
+    triggered: boolean;
+    result: "corroborated" | "still-unsupported" | "no-new-evidence";
+    editorial: Awaited<ReturnType<typeof googleEditorialDecision>>;
+  } = null;
+
+  let resolvedChange: LocalChange | undefined = published[0];
+
+  if (
+    !googleEditorial.decision.publishable &&
+    googleEditorial.decision.classification === "unsupported" &&
+    published[0]
+  ) {
+    const rescanTopic = published[0].title;
+
+    const nimbleRescan = await traceStep(
+      "nimble.verifier_rescan",
+      { area, slug, sponsor: "nimble", step: "verifier_resend", rescan_topic: rescanTopic },
+      () =>
+        nimbleRunCivicScan({
+          area,
+          requestedTopic: rescanTopic,
+          fallbackSources: sources,
+          fallbackChanges: [],
+        })
+    );
+
+    events.push({
+      step: events.length + 1,
+      title: "Verifier resend triggered",
+      detail: `Claim "${rescanTopic}" was unsupported. Nimble re-queried for corroborating official sources.`,
+      source: "Nimble (Verifier)",
+      risk: "medium",
+      status: nimbleRescan.changes.length > 0 ? "done" : "warn",
+    });
+
+    const verifierChange = nimbleRescan.changes[0];
+    if (verifierChange) {
+      const verifierEditorial = await traceStep(
+        "gemini.verifier_decision",
+        { area, slug, sponsor: "google_gemini", step: "verifier_resend" },
+        () => googleEditorialDecision({ area, change: verifierChange })
+      );
+
+      const outcome = verifierEditorial.decision.publishable ? "corroborated" : "still-unsupported";
+
+      events.push({
+        step: events.length + 1,
+        title: "Verifier re-evaluation complete",
+        detail: `Gemini re-evaluated the resent claim. Result: ${outcome}. ${verifierEditorial.decision.reason}`,
+        source: "Google Gemini (Verifier)",
+        risk: "medium",
+        status: verifierEditorial.decision.publishable ? "done" : "warn",
+      });
+
+      verifierResend = { triggered: true, result: outcome, editorial: verifierEditorial };
+      if (verifierEditorial.decision.publishable) {
+        resolvedChange = verifierChange;
+        published = [verifierChange, ...published.slice(1)];
+      }
+    } else {
+      verifierResend = { triggered: true, result: "no-new-evidence", editorial: googleEditorial };
+
+      events.push({
+        step: events.length + 1,
+        title: "Verifier resend: no new evidence",
+        detail: `Nimble found no additional corroborating sources for "${rescanTopic}".`,
+        source: "Nimble (Verifier)",
+        risk: "medium",
+        status: "warn",
+      });
+    }
+  }
+
+  // Step 6: Writer — Gemini drafts polished resident-facing prose from the approved change
+  let writerResult: Awaited<ReturnType<typeof runWriterAgent>> | null = null;
+  let mentorResult: Awaited<ReturnType<typeof runMentorReview>> | null = null;
+
+  if (resolvedChange) {
+    writerResult = await traceStep(
+      "gemini.writer_agent",
+      { area, slug, sponsor: "google_gemini", step: "writer" },
+      () => runWriterAgent({ change: resolvedChange!, sources, area })
+    );
+
+    events.push({
+      step: events.length + 1,
+      title: "Writer agent produced brief prose",
+      detail: `Gemini Writer drafted a ${writerResult.prose.length}-char resident-facing brief. Mode: ${writerResult.mode}.`,
+      source: "Google Gemini (Writer)",
+      risk: "low",
+      status: "done",
+    });
+
+    // Step 7: Mentor — Gemini reviews the written prose before publication
+    mentorResult = await traceStep(
+      "gemini.mentor_review",
+      { area, slug, sponsor: "google_gemini", step: "mentor" },
+      () => runMentorReview({ prose: writerResult!.prose, headline: resolvedChange!.title, area })
+    );
+
+    events.push({
+      step: events.length + 1,
+      title: "Mentor editorial review complete",
+      detail: `Mentor ${mentorResult.approved ? "approved" : "flagged"} the brief. Notes: ${mentorResult.notes}`,
+      source: "Google Gemini (Mentor)",
+      risk: "low",
+      status: mentorResult.approved ? "done" : "warn",
+    });
+  }
+
+  const writerProse = writerResult && mentorResult?.approved ? writerResult.prose : undefined;
+
   const dynamicBrief = buildDynamicBrief({
     area,
-    change: published[0],
+    change: resolvedChange,
     sources,
+    writerProse,
     events,
     googleEditorial,
   });
 
+  // Step 8: Publisher — Senso publishes the brief as an AI-citable artifact
   const sensoPublish = await traceStep(
     "senso.grounding",
     { area, slug, sponsor: "senso", brief_id: dynamicBrief.id },
@@ -290,6 +430,7 @@ export async function runPublicWireScan(params?: {
       })
   );
 
+  // Step 9: Reliability Reviewer — Lapdog audits the published brief
   const lapdogReview = await traceStep(
     "lapdog.reliability_review",
     { area, slug, sponsor: "datadog_lapdog", brief_id: dynamicBrief.id },
@@ -304,6 +445,11 @@ export async function runPublicWireScan(params?: {
       })
   );
 
+  // Audit Translator: converts the machine event log into reader-facing plain English
+  const auditLog = events.map(
+    (e) => `Step ${e.step} — ${e.title}: ${e.detail} [${e.source}]`
+  );
+
   return {
     sessionId,
     area,
@@ -314,10 +460,14 @@ export async function runPublicWireScan(params?: {
     rejected,
     brief: dynamicBrief,
     events,
+    auditLog,
     metrics,
     clickhouse,
     publishing: sensoPublish,
     googleEditorial,
+    verifierResend,
+    writerAgent: writerResult,
+    mentorReview: mentorResult,
     lapdogReview,
     sponsorStack: {
       nimble: {
@@ -326,7 +476,7 @@ export async function runPublicWireScan(params?: {
       },
       clickhouse: {
         provider: "ClickHouse",
-        role: "Stores source snapshots, detected changes, rejected items, publish history, and agent decisions.",
+        role: "Change Detector queries prior event history; ledger write stores scan events and metrics.",
       },
       senso: {
         provider: "Senso / cited.md",
@@ -334,7 +484,7 @@ export async function runPublicWireScan(params?: {
       },
       googleAgentCli: {
         provider: "Google Gemini",
-        role: `${googleEditorial.mode}: ${googleEditorial.purpose}`,
+        role: `Editor: ${googleEditorial.mode}. Writer + Mentor: produce and review prose before publication.`,
       },
     },
   };

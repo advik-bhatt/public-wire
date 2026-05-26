@@ -303,8 +303,8 @@ function mapBrief(scan: ScanResult, change: ScanChange, index: number): CivicBri
         ? `${scan.lastChecked} - Senso citation attached: ${scan.publishing.citationId}.`
         : `${scan.lastChecked} - Grounding layer completed.`,
     ],
+    publishedUrl: scan.publishing?.publishedUrl,
     artifactLabel:
-      scan.publishing?.publishedUrl ||
       scan.publishing?.citationId ||
       `PublicWire live artifact: ${id}`,
     investigationTrace: buildInvestigationTrace(scan, change),

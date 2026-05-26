@@ -34,6 +34,7 @@ export type CivicBrief = {
   reliabilityReview: string;
   updateHistory: string[];
   artifactLabel: string;
+  publishedUrl?: string;
   investigationTrace: {
     time: string;
     agent: string;

@@ -279,12 +279,53 @@ export async function nimbleRunCivicScan(params: {
     const nimble = new Nimble({ apiKey });
     const requestedTopic = params.requestedTopic?.trim();
 
-    const result = await nimble.search({
+    // output_schema instructs Nimble to return structured civic data directly,
+    // treating it as an extraction primitive rather than a plain search bar.
+    const nimbleCivicSchema = {
+      type: "object",
+      properties: {
+        sources: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              name: { type: "string" },
+              url: { type: "string" },
+              category: { type: "string", enum: ["city", "transportation", "school", "event", "permit"] },
+              sourceType: { type: "string", enum: ["official", "public"] },
+            },
+          },
+        },
+        changes: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              sourceId: { type: "string" },
+              title: { type: "string" },
+              category: { type: "string", enum: ["transportation", "city-agenda", "event", "school", "construction"] },
+              status: { type: "string", enum: ["new", "updated", "rejected"] },
+              importance: { type: "string", enum: ["urgent", "resident-relevant", "routine", "unsupported"] },
+              whatChanged: { type: "string" },
+              whyItMatters: { type: "string" },
+              whoIsAffected: { type: "array", items: { type: "string" } },
+              evidence: { type: "array", items: { type: "string" } },
+              rejectionReason: { type: "string" },
+            },
+          },
+        },
+      },
+    };
+
+    const result = await (nimble.search as (params: Record<string, unknown>) => Promise<unknown>)({
       query: requestedTopic
         ? `For ${params.area}, investigate this local civic topic or claim: "${requestedTopic}". Find official or public sources that support, contradict, or fail to corroborate it. Prioritize township notices, municipal pages, construction, road closures, public works, transit alerts, parking authority updates, school notices, permits, utility notices, council agendas, agency pages, and local public records. Exclude private-person claims, unsupported crime claims, opinion, and speculation.`
         : `For ${params.area}, find official or public civic sources and recent resident-relevant updates. Prioritize township notices, municipal pages, construction, road closures, public works, transit alerts, parking authority updates, school notices, permits, utility notices, and council agendas. Exclude rumors, private-person claims, unsupported crime claims, and opinion.`,
       focus: "general",
       search_depth: "lite",
+      output_schema: nimbleCivicSchema,
     });
 
     const extracted = await extractChangesWithGemini({
