@@ -200,12 +200,6 @@ export function PublicWireEdition({
             </div>
           )}
 
-          {liveLoaded && !liveError && (
-            <div className="mt-4 border border-emerald-600 bg-emerald-50 p-3 text-sm text-emerald-800">
-              Live sponsor-backed edition loaded from Nimble, Gemini, ClickHouse, Senso, and Lapdog trace data.
-            </div>
-          )}
-
           {coverageNotification && (
             <div className="mt-4 border border-blue-600 bg-blue-50 p-4 text-sm text-blue-900">
               <div className="font-bold">{coverageNotification.title}</div>
@@ -614,9 +608,9 @@ function InvestigationDialog({
                   Trace timeline
                 </div>
                 <ol className="space-y-3">
-                  {brief.investigationTrace.map((event) => (
+                  {brief.investigationTrace.map((event, i) => (
                     <li
-                      key={`${event.time}-${event.agent}`}
+                      key={`${i}-${event.time}-${event.agent}`}
                       className={`grid gap-3 border p-4 sm:grid-cols-[78px_150px_1fr] ${
                         event.status === "needs-evidence" || event.status === "resent"
                           ? "border-amber-500 bg-amber-50"
@@ -700,8 +694,8 @@ function InvestigationDialog({
                   <div className="space-y-2">
                     {brief.investigationTrace
                       .filter((event) => event.technicalConfidence)
-                      .map((event) => (
-                        <p key={`${event.time}-${event.technicalConfidence}`} className="text-xs text-neutral-300">
+                      .map((event, i) => (
+                        <p key={`${i}-${event.time}-${event.technicalConfidence}`} className="text-xs text-neutral-300">
                           {event.agent}: {event.technicalConfidence}
                         </p>
                       ))}
