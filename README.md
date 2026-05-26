@@ -20,6 +20,32 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Setting Up API Keys
+
+This project requires several API keys to function properly. Create a `.env.local` file in the project root and add the following environment variables:
+
+```bash
+# Nimble API (source monitoring)
+NIMBLE_API_KEY=your_nimble_api_key_here
+
+# Senso API (data processing)
+SENSO_API_KEY=your_senso_api_key_here
+
+# ClickHouse database (event ledger)
+CLICKHOUSE_URL=your_clickhouse_url_here
+CLICKHOUSE_USERNAME=your_clickhouse_username
+CLICKHOUSE_PASSWORD=your_clickhouse_password
+
+# Google Gemini API (content generation)
+# Either use API key directly:
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Or use Google Cloud credentials:
+GOOGLE_CLOUD_PROJECT=your_google_cloud_project_id
+```
+
+The application will work in demo mode without these keys, but full functionality requires proper API configuration. Check the status endpoint at `/api/sponsor-status` to verify which services are properly configured.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
