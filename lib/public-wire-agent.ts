@@ -256,20 +256,8 @@ export async function runPublicWireScan(params?: {
     briefsPublished: published.length > 0 ? 1 : 0,
     rejectedItems: rejected.length,
     officialSources,
-    confidenceScore: 0, // filled in after lapdogReview
+    confidenceScore: 0, // updated after Lapdog runs, before ledger write
   };
-
-  // Step 3: Ledger write — ClickHouse records this scan's events and metrics
-  const clickhouse = await traceStep(
-    "clickhouse.ledger_write",
-    { area, slug, session_id: sessionId, sponsor: "clickhouse" },
-    () =>
-      logRecallFormRun({
-        sessionId,
-        events,
-        metrics,
-      })
-  );
 
   // Step 4: Editor — Gemini decides if the top candidate is publishable
   const googleEditorial = await traceStep(
@@ -433,7 +421,12 @@ export async function runPublicWireScan(params?: {
     status: sensoPublish.publishedUrl || sensoPublish.citationId ? "done" : "warn",
   });
 
-  // Step 9: Reliability Reviewer — Lapdog audits the published brief
+  const rawSourceText = nimble.raw
+    ? JSON.stringify(nimble.raw, null, 2).slice(0, 8000)
+    : undefined;
+
+  // Step 9: Reliability Reviewer — Lapdog independently checks source reachability and
+  // runs an adversarial claim-verification pass against the raw Nimble extraction text.
   const lapdogReview = await traceStep(
     "lapdog.reliability_review",
     { area, slug, sponsor: "datadog_lapdog", brief_id: dynamicBrief.id },
@@ -445,11 +438,25 @@ export async function runPublicWireScan(params?: {
         agentTrace: dynamicBrief.agentTrace,
         geminiDecision: googleEditorial.decision,
         events,
+        rawSourceText,
       })
   );
 
-  // confidenceScore derived from Lapdog's reliability audit score (0–100)
+  // confidenceScore is now known; update metrics before the ledger write
   metrics.confidenceScore = lapdogReview.score;
+
+  // Ledger write — happens after ALL pipeline steps so ClickHouse gets the full trace
+  const clickhouse = await traceStep(
+    "clickhouse.ledger_write",
+    { area, slug, session_id: sessionId, sponsor: "clickhouse" },
+    () =>
+      logRecallFormRun({
+        sessionId,
+        area,
+        events,
+        metrics,
+      })
+  );
 
   // Audit Translator: converts the machine event log into reader-facing plain English
   const auditLog = events.map(

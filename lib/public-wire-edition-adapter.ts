@@ -100,6 +100,12 @@ type ScanResult = {
       comment: string;
     }[];
     traceSummary: string[];
+    sourceReachability?: { url: string; reachable: boolean; status: number }[];
+    adversarialReview?: {
+      overallVerdict: string;
+      unsupportedCount: number;
+      claims: { claim: string; supported: boolean; sourceEvidence: string | null; verdict: string }[];
+    };
   };
 };
 
@@ -221,12 +227,20 @@ function buildInvestigationTrace(scan: ScanResult, change: ScanChange) {
   }));
 
   if (scan.lapdogReview) {
+    const reachability = scan.lapdogReview.sourceReachability;
+    const reachabilityNote = reachability
+      ? `${reachability.filter((s) => s.reachable).length}/${reachability.length} source URLs verified reachable.`
+      : "";
+    const adversarialNote = scan.lapdogReview.adversarialReview
+      ? ` Adversarial claim check: ${scan.lapdogReview.adversarialReview.overallVerdict}${scan.lapdogReview.adversarialReview.unsupportedCount > 0 ? ` (${scan.lapdogReview.adversarialReview.unsupportedCount} unsupported)` : ""}.`
+      : "";
+
     trace.push({
       time: now,
       agent: "Reliability Reviewer",
       status: scan.lapdogReview.passed ? "verified" : "needs-evidence",
-      detail: `${scan.lapdogReview.provider} ${scan.lapdogReview.mode}: ${scan.lapdogReview.verdict}`,
-      query: "Trace Source Scout, Change Ledger, Editorial Agent, Grounding Agent, and Reliability Reviewer spans.",
+      detail: `${scan.lapdogReview.provider} ${scan.lapdogReview.mode}: ${reachabilityNote}${adversarialNote} ${scan.lapdogReview.verdict}`.trim(),
+      query: "HEAD-check each source URL for reachability. Run adversarial claim verification: find every brief claim that cannot be directly quoted from the source extraction text.",
       technicalConfidence: String(scan.lapdogReview.score / 100),
     });
   }

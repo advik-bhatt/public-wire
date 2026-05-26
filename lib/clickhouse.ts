@@ -25,13 +25,17 @@ const client = hasClickHouseEnv
     })
   : null;
 
+let tablesEnsured = false;
+
 export async function ensureClickHouseTables() {
   if (!client) return { enabled: false, reason: "ClickHouse env vars not configured" };
+  if (tablesEnsured) return { enabled: true };
 
   await client.exec({
     query: `
       CREATE TABLE IF NOT EXISTS publicwire_events (
         session_id String,
+        area String,
         step UInt32,
         title String,
         detail String,
@@ -41,7 +45,7 @@ export async function ensureClickHouseTables() {
         created_at DateTime64(3)
       )
       ENGINE = MergeTree
-      ORDER BY (session_id, step)
+      ORDER BY (area, session_id, step)
     `,
   });
 
@@ -49,15 +53,17 @@ export async function ensureClickHouseTables() {
     query: `
       CREATE TABLE IF NOT EXISTS publicwire_metrics (
         session_id String,
+        area String,
         metric String,
         value Float64,
         created_at DateTime64(3)
       )
       ENGINE = MergeTree
-      ORDER BY (session_id, metric)
+      ORDER BY (area, session_id, metric)
     `,
   });
 
+  tablesEnsured = true;
   return { enabled: true };
 }
 
@@ -66,10 +72,16 @@ export async function queryPriorEvents(area: string): Promise<{ count: number; l
 
   try {
     await ensureClickHouseTables();
-    const shortArea = area.split(",")[0].trim();
+
+    // Count distinct sessions for this area (not raw event rows, which inflate the number).
+    // Area is a first-class column so this uses the MergeTree index rather than a full string scan.
     const result = await client.query({
-      query: `SELECT COUNT(*) as count, MAX(created_at) as last_seen FROM publicwire_events WHERE ilike(detail, {area_pattern:String})`,
-      query_params: { area_pattern: `%${shortArea}%` },
+      query: `
+        SELECT COUNT(DISTINCT session_id) as count, MAX(created_at) as last_seen
+        FROM publicwire_events
+        WHERE area = {area:String}
+      `,
+      query_params: { area },
       format: "JSONEachRow",
     });
     const rows = await result.json<{ count: string; last_seen: string }>();
@@ -85,6 +97,7 @@ export async function queryPriorEvents(area: string): Promise<{ count: number; l
 
 export async function logRecallFormRun(params: {
   sessionId: string;
+  area: string;
   events: EventToLog[];
   metrics: MetricsToLog;
 }) {
@@ -103,6 +116,7 @@ export async function logRecallFormRun(params: {
     table: "publicwire_events",
     values: params.events.map((event) => ({
       session_id: params.sessionId,
+      area: params.area,
       step: event.step,
       title: event.title,
       detail: event.detail,
@@ -118,6 +132,7 @@ export async function logRecallFormRun(params: {
     table: "publicwire_metrics",
     values: Object.entries(params.metrics).map(([metric, value]) => ({
       session_id: params.sessionId,
+      area: params.area,
       metric,
       value,
       created_at: now,
