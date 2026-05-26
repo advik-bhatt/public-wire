@@ -24,7 +24,7 @@ const AGENTS: AgentCard[] = [
   },
   {
     name: "Editorial Agent",
-    provider: "Gemini",
+    provider: "Internal",
     role: "Evaluates whether a detected civic change is resident-relevant, routine, unsupported, or publishable.",
   },
   {
@@ -80,7 +80,7 @@ export function AgentSwarm() {
           </div>
           <p className="text-lg md:text-2xl text-neutral-200 leading-snug font-light text-balance self-end max-w-2xl">
             PublicWire uses a five-step chain: Nimble finds civic source material,
-            ClickHouse records the audit trail, Gemini makes the editorial decision,
+            ClickHouse records the audit trail, the editorial agent makes the decision,
             Senso grounds the brief, and Datadog Lapdog traces the reliability layer.
           </p>
         </div>
