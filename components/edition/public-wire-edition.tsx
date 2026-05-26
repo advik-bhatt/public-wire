@@ -251,7 +251,7 @@ export function PublicWireEdition({
               </div>
 
               <div className="flex flex-wrap gap-3">
-                <Link href={`/briefs/${topBrief.slug}`} className="btn-solid-dark">
+                <Link href={`/briefs/${fallbackEdition.briefs[0].slug}`} className="btn-solid-dark">
                   Read full trust layer <ArrowUpRight className="size-4" />
                 </Link>
                 <button

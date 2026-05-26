@@ -165,7 +165,7 @@ export default async function BriefPage({ params }: BriefPageProps) {
             <ol className="grid gap-px bg-white/15 border border-white/15">
               {brief.investigationTrace.map((event, index) => (
                 <li
-                  key={`${event.time}-${event.agent}`}
+                  key={`${index}-${event.time}-${event.agent}`}
                   className={`grid gap-4 p-5 md:grid-cols-[90px_180px_1fr] ${
                     event.status === "needs-evidence" || event.status === "resent"
                       ? "bg-amber-100 text-black"
