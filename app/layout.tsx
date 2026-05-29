@@ -3,9 +3,9 @@ import { PageTransition } from "@/components/page-transition";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "PublicWire , Self-running local newspapers, powered by civic agents",
+  title: "Rolemate | Proof infrastructure for technical hiring",
   description:
-    "PublicWire monitors public city sites, county notices, transit alerts, agendas, school updates, and event calendars, then publishes short cited briefs when something meaningful changes.",
+    "Rolemate turns technical work, proof missions, GitHub, projects, and job context into role-specific evidence maps, gap plans, referral context, and hiring signal.",
 };
 
 export default function RootLayout({
