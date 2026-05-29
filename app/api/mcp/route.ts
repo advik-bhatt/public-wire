@@ -37,13 +37,14 @@ const tools = [
   {
     name: "rolemate.generate_proof_map",
     description:
-      "Generate a proof map from resume, GitHub, projects, mission results, and target role context.",
+      "Generate a proof map from resume, GitHub, projects, mission results, recruiter-agent context, and target role context.",
     input_schema: {
       type: "object",
       properties: {
         candidateContext: { type: "string" },
         targetRole: { type: "string" },
         evidenceUrls: { type: "array", items: { type: "string" } },
+        recruiterAgentContext: { type: "string" },
       },
       required: ["candidateContext", "targetRole"],
     },
@@ -88,6 +89,23 @@ const tools = [
       required: ["proofMapId", "targetRole"],
     },
   },
+  {
+    name: "rolemate.prepare_agent_packet",
+    description:
+      "Prepare a machine-readable proof packet for an AI recruiter, ATS, sourcing agent, or internal hiring tool.",
+    input_schema: {
+      type: "object",
+      properties: {
+        proofMapId: { type: "string" },
+        targetRole: { type: "string" },
+        routingGoal: {
+          type: "string",
+          enum: ["human_review", "referral", "interview", "talent_pool", "mentor_review"],
+        },
+      },
+      required: ["proofMapId", "targetRole", "routingGoal"],
+    },
+  },
 ];
 
 export async function GET() {
@@ -95,12 +113,12 @@ export async function GET() {
     name: "Rolemate MCP",
     version: "0.1.0",
     description:
-      "MCP-facing manifest for proof missions, candidate-owned proof passports, role-fit comparison, and evidence-grounded referral context.",
+      "MCP-facing manifest for proof missions, candidate-owned proof passports, role-fit comparison, recruiter-agent packets, and evidence-grounded referral context.",
     positioning: {
       minimum_bar:
         "Support Velric-style proof-of-work missions as a first-class hiring object.",
       wedge:
-        "Own the post-proof-work layer: mission reuse, proof portability, cross-employer evidence memory, and agent-accessible career/hiring tools.",
+        "Own the post-proof-work and post-AI-recruiter layer: mission reuse, proof portability, cross-employer evidence memory, and agent-readable routing packets.",
     },
     tools,
   });
