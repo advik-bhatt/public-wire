@@ -11,6 +11,7 @@ const proofInputs = [
   "Proof missions",
   "Technical assessments",
   "Interview feedback",
+  "Recruiter-agent context",
 ];
 
 const artifacts = [
@@ -28,11 +29,11 @@ const artifacts = [
   },
   {
     title: "Employer view",
-    body: "Hiring teams get a shortlist organized by evidence quality, role fit, mission performance, communication signal, and growth trajectory before interviews.",
+    body: "Hiring teams and recruiting agents get a shortlist organized by evidence quality, role fit, mission performance, communication signal, and growth trajectory before interviews.",
   },
 ];
 
-const postVelricPains = [
+const postMarketPains = [
   {
     title: "Mission fatigue",
     body: "If every company creates its own proof task, candidates will drown in unpaid assignments. Rolemate makes proof reusable, permissioned, and role-mapped.",
@@ -42,8 +43,8 @@ const postVelricPains = [
     body: "A candidate may complete strong work across five companies and still have no portable record. Rolemate turns repeated assessments into a durable proof passport.",
   },
   {
-    title: "Employer overfitting",
-    body: "A company-specific mission can measure one narrow surface. Rolemate connects mission results to broader evidence from projects, repos, internships, and interviews.",
+    title: "Recruiter-agent opacity",
+    body: "If always-on AI recruiters become common, candidates need machine-readable proof packets that show why an agent should route them forward.",
   },
   {
     title: "Reviewer bandwidth",
@@ -58,6 +59,7 @@ const mcpTools = [
   "rolemate.compare_to_role",
   "rolemate.recommend_next_proof",
   "rolemate.draft_referral_context",
+  "rolemate.prepare_agent_packet",
 ];
 
 const competitors = [
@@ -65,6 +67,11 @@ const competitors = [
     name: "Velric",
     focus: "Employer-created missions, proof-of-work hiring, standardized talent validation",
     rolemate: "Mission marketplace plus candidate-owned proof passport, reusable evidence, MCP/API access, and cross-employer fit intelligence",
+  },
+  {
+    name: "Findr.es",
+    focus: "Always-on AI recruiter layer for sourcing, screening, and routing candidates",
+    rolemate: "Agent-readable proof packets that give recruiter agents verified evidence, reusable mission results, and candidate-controlled context",
   },
   {
     name: "AIApply, JobCopilot, LazyApply",
@@ -89,30 +96,30 @@ export default function HomePage() {
       <section className="mx-auto flex min-h-screen max-w-7xl flex-col justify-between px-5 py-6 sm:px-8 lg:px-10">
         <nav className="flex items-center justify-between border-b border-black/15 pb-4 text-xs uppercase tracking-[0.22em]">
           <span className="font-semibold">Rolemate</span>
-          <span className="hidden text-black/55 sm:inline">Proof missions + portable hiring signal</span>
+          <span className="hidden text-black/55 sm:inline">Proof missions + recruiter-agent signal</span>
           <a href="#mcp" className="font-semibold underline underline-offset-4">MCP ready</a>
         </nav>
 
         <div className="grid gap-10 py-16 lg:grid-cols-[1.05fr_0.95fr] lg:items-end">
           <div>
             <div className="mb-5 inline-flex border border-black/20 bg-white px-3 py-2 text-xs uppercase tracking-[0.18em]">
-              Velric-level missions. Post-Velric proof portability.
+              Velric-level missions. Findr-ready proof packets.
             </div>
             <h1 className="max-w-5xl text-5xl font-semibold leading-[0.92] tracking-[-0.06em] sm:text-7xl lg:text-8xl">
               Proof-of-work hiring needs a memory layer.
             </h1>
             <p className="mt-7 max-w-2xl text-lg leading-8 text-black/68">
-              Rolemate gives companies role-specific proof missions and gives candidates a reusable proof passport. When technical hiring moves beyond resumes, completed work should compound instead of disappearing after each application.
+              Rolemate gives companies role-specific proof missions and gives candidates a reusable proof passport. As AI recruiters and proof-of-work hiring spread, completed work should compound instead of disappearing after each application.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <a href="/api/mcp" className="btn-solid-dark">View MCP endpoint</a>
-              <a href="#post-velric" className="btn-outline-dark">Post-Velric wedge</a>
+              <a href="#post-market" className="btn-outline-dark">Post-market wedge</a>
             </div>
           </div>
 
           <div className="border border-black bg-white p-4 shadow-[10px_10px_0_#111]">
             <div className="border-b border-black/15 pb-3 text-xs uppercase tracking-[0.2em] text-black/55">
-              Live proof packet
+              Agent-readable proof packet
             </div>
             <div className="mt-5 space-y-4">
               <div>
@@ -124,7 +131,7 @@ export default function HomePage() {
                   ["Mission result", "Designed a job-post parser API with tests and edge-case notes"],
                   ["Evidence", "GitHub repos, Voya ETL, Rolemate, hackathon builds"],
                   ["Reusable claims", "API design, data pipelines, RAG, product shipping"],
-                  ["Next proof", "Deploy a public MCP demo with usage logs"],
+                  ["Agent packet", "Why this candidate should be routed to human review"],
                 ].map(([label, value]) => (
                   <div key={label} className="border border-black/15 bg-[#faf7f0] p-3">
                     <div className="text-xs uppercase tracking-[0.16em] text-black/45">{label}</div>
@@ -135,7 +142,7 @@ export default function HomePage() {
               <div className="border border-black bg-black p-4 text-white">
                 <div className="text-xs uppercase tracking-[0.18em] text-white/55">System output</div>
                 <p className="mt-2 text-sm leading-6 text-white/80">
-                  Completed proof should compound across roles, referrers, mentors, companies, and agents.
+                  Completed proof should compound across roles, referrers, mentors, companies, and recruiter agents.
                 </p>
               </div>
             </div>
@@ -152,7 +159,7 @@ export default function HomePage() {
                 Rolemate starts with the thing Velric is proving: resumes are too weak.
               </h2>
               <p className="mt-5 text-base leading-7 text-black/62">
-                The product must support proof missions directly. The difference is what happens after missions become common across the market.
+                The product must support proof missions directly. The difference is what happens after missions and always-on recruiter agents become normal.
               </p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -167,19 +174,19 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section id="post-velric" className="mx-auto max-w-7xl px-5 py-16 sm:px-8 lg:px-10">
+      <section id="post-market" className="mx-auto max-w-7xl px-5 py-16 sm:px-8 lg:px-10">
         <div className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr]">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-black/45">Post-Velric wedge</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-black/45">Post-Velric / post-Findr wedge</p>
             <h2 className="mt-3 text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">
-              If proof missions win, the next pain is proof overload.
+              If proof missions and AI recruiters win, the next pain is proof routing.
             </h2>
             <p className="mt-5 text-base leading-7 text-black/62">
-              A successful Velric-like market creates a second-order problem: every employer wants proof, every candidate repeats work, and every result lives in a different silo. Rolemate is built for that second-order market.
+              A successful Velric-like market creates repeated proof tasks. A successful Findr-like market creates always-on recruiter agents deciding who gets routed forward. Rolemate is built for the second-order market where proof must be reusable, comparable, permissioned, and machine-readable.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            {postVelricPains.map((item) => (
+            {postMarketPains.map((item) => (
               <article key={item.title} className="border border-black bg-white p-5">
                 <h3 className="text-xl font-semibold">{item.title}</h3>
                 <p className="mt-3 text-sm leading-6 text-black/65">{item.body}</p>
@@ -194,7 +201,7 @@ export default function HomePage() {
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-black/45">Inputs</p>
             <h2 className="mt-3 text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">
-              Rolemate reads formal missions and informal proof.
+              Rolemate reads formal missions, informal proof, and agent context.
             </h2>
           </div>
           <div className="flex flex-wrap content-start gap-2">
@@ -212,10 +219,10 @@ export default function HomePage() {
           <div>
             <p className="text-xs uppercase tracking-[0.24em] text-white/45">MCP and API layer</p>
             <h2 className="mt-3 text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">
-              Rolemate should be callable from any serious AI surface.
+              Rolemate should be callable from any serious AI hiring surface.
             </h2>
             <p className="mt-5 text-base leading-7 text-white/65">
-              ChatGPT, Claude, Cursor, internal recruiting agents, career-center tools, or a company ATS can call Rolemate as a tool. The moat is structured proof and mission memory, not a chatbot wrapper.
+              ChatGPT, Claude, Cursor, internal recruiting agents, career-center tools, or a company ATS can call Rolemate as a tool. The moat is structured proof, mission memory, and agent-readable context.
             </p>
           </div>
           <div className="border border-white/20 bg-white/5 p-4">
@@ -234,7 +241,7 @@ export default function HomePage() {
       <section className="mx-auto max-w-7xl px-5 py-16 sm:px-8 lg:px-10">
         <p className="text-xs uppercase tracking-[0.24em] text-black/45">Competitive wedge</p>
         <h2 className="mt-3 max-w-4xl text-4xl font-semibold tracking-[-0.04em] sm:text-5xl">
-          Match proof-of-work hiring, then own portability, reuse, and agent access.
+          Match proof-of-work hiring, then own portability, reuse, and agent routing.
         </h2>
         <div className="mt-8 grid gap-3">
           {competitors.map((row) => (
@@ -251,7 +258,7 @@ export default function HomePage() {
         <div className="mx-auto flex max-w-7xl flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-2xl font-semibold">Rolemate</div>
-            <p className="mt-1 text-sm text-white/55">Free for builders. Businesses pay for stronger technical signal, mission design, and evidence review.</p>
+            <p className="mt-1 text-sm text-white/55">Free for builders. Businesses pay for mission design, stronger technical signal, evidence review, and recruiter-agent routing.</p>
           </div>
           <a href="/api/proof-map" className="btn-outline-light">View proof-map API</a>
         </div>
