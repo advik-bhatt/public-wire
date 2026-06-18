@@ -158,8 +158,6 @@ Every route gets a soft fade-in on entry via `<PageTransition>` in `app/layout.t
 
 ## Other docs in this repo
 
-- [`HOW_WE_APPEASED_THE_SPONSORS_AND_THE_HACKATHON_REQUIREMENT.md`](./HOW_WE_APPEASED_THE_SPONSORS_AND_THE_HACKATHON_REQUIREMENT.md) — Forward-looking plan for the sponsor integration merge. Names each sponsor's role, demo surface, and current status.
-- [`DEMO_WALKTHROUGH.md`](./DEMO_WALKTHROUGH.md) — The 3-minute demo script: beats, voice-over lines, navigation order, what each click should look like, what to never say on stage.
 - `AGENTS.md` / `CLAUDE.md` — Repo-level instructions for AI assistants working on this codebase.
 
 ---
