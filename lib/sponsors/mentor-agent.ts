@@ -1,33 +1,40 @@
+import "server-only";
+
 import { GoogleGenAI } from "@google/genai";
+import { z } from "zod";
+
+const mentorResponseSchema = z
+  .object({
+    approved: z.boolean(),
+    notes: z.string().trim().min(1).max(500),
+  })
+  .strict();
 
 export type MentorResult = {
   provider: "Google Gemini (Mentor)";
-  mode: "real-api" | "seeded-demo" | "api-error-fallback";
+  mode: "real-api" | "demo-no-publish" | "provider-error";
   purpose: string;
+  outcome:
+    | "pass"
+    | "fail"
+    | "unavailable"
+    | "malformed"
+    | "timed_out"
+    | "error";
   approved: boolean;
   notes: string;
-  error?: string;
+  errorCode?: string;
 };
 
-function extractJson(text: string): { approved: boolean; notes: string } | null {
+function extractJson(text: string): unknown {
   const cleaned = text
     .replace(/^```json/i, "")
     .replace(/^```/i, "")
     .replace(/```$/i, "")
     .trim();
-
   try {
     return JSON.parse(cleaned);
   } catch {
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(cleaned.slice(start, end + 1));
-      } catch {
-        return null;
-      }
-    }
     return null;
   }
 }
@@ -36,69 +43,83 @@ export async function runMentorReview(params: {
   prose: string;
   headline: string;
   area: string;
+  signal?: AbortSignal;
 }): Promise<MentorResult> {
   const apiKey = process.env.GEMINI_API_KEY;
-
   if (!apiKey) {
     return {
       provider: "Google Gemini (Mentor)",
-      mode: "seeded-demo",
-      purpose: "Gemini API key missing. Mentor auto-approves in demo mode.",
-      approved: true,
-      notes: "Auto-approved: no Gemini key configured.",
+      mode: "demo-no-publish",
+      purpose: "Mentor review is unavailable; demo mode cannot publish.",
+      outcome: "unavailable",
+      approved: false,
+      notes: "Draft review is unavailable in demo mode.",
+      errorCode: "MISSING_API_KEY",
     };
   }
 
-  const prompt = `You are the Mentor agent for PublicWire, an autonomous civic newsroom. Your role is editorial quality control before publication.
-
-Review this civic brief for publication readiness:
-Headline: ${params.headline}
-Area: ${params.area}
-Brief: ${params.prose}
-
-Evaluate:
-1. Is it factually specific (not vague or generic)?
-2. Does it avoid unsupported claims or speculation?
-3. Is it useful to a resident of ${params.area}?
-4. Is it free of editorializing or opinion?
-
-Return JSON only, no other text:
-{"approved": true or false, "notes": "one sentence of editorial feedback"}`;
-
-  const ai = new GoogleGenAI({ apiKey });
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort(params.signal?.reason);
+  params.signal?.addEventListener("abort", forwardAbort, { once: true });
+  const timeout = setTimeout(
+    () => controller.abort(new Error("Mentor review timed out")),
+    10_000,
+  );
 
   try {
+    const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
+      model: process.env.PUBLIC_WIRE_ADK_MODEL || "gemini-2.5-flash",
+      contents: `Review this civic brief for factual specificity, unsupported claims, resident usefulness, and editorializing. Return JSON only.\n\nHeadline: ${params.headline}\nArea: ${params.area}\nBrief: ${params.prose}`,
+      config: {
+        abortSignal: controller.signal,
+        responseMimeType: "application/json",
+        responseJsonSchema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["approved", "notes"],
+          properties: {
+            approved: { type: "boolean" },
+            notes: { type: "string" },
+          },
+        },
+      },
     });
-
-    const parsed = extractJson(response.text || "");
-    if (parsed) {
+    const parsed = mentorResponseSchema.safeParse(
+      extractJson(response.text || ""),
+    );
+    if (!parsed.success) {
       return {
         provider: "Google Gemini (Mentor)",
-        mode: "real-api",
-        purpose: "Mentor agent reviewed the written brief for accuracy, specificity, and resident value.",
-        approved: Boolean(parsed.approved),
-        notes: String(parsed.notes || "Brief passed editorial review."),
+        mode: "provider-error",
+        purpose: "Mentor output failed strict validation; the draft was held.",
+        outcome: "malformed",
+        approved: false,
+        notes: "Draft review response was invalid.",
+        errorCode: "INVALID_MODEL_OUTPUT",
       };
     }
-
     return {
       provider: "Google Gemini (Mentor)",
       mode: "real-api",
-      purpose: "Mentor agent reviewed the brief; response was not parseable, defaulting to approved.",
-      approved: true,
-      notes: "Brief approved (parse fallback).",
+      purpose: "Mentor completed a strictly validated draft review.",
+      outcome: parsed.data.approved ? "pass" : "fail",
+      approved: parsed.data.approved,
+      notes: parsed.data.notes,
     };
-  } catch (error) {
+  } catch {
+    const timedOut = controller.signal.aborted;
     return {
       provider: "Google Gemini (Mentor)",
-      mode: "api-error-fallback",
-      purpose: "Mentor review failed. Auto-approving to avoid blocking publication.",
-      approved: true,
-      notes: "Auto-approved: mentor error fallback.",
-      error: String(error),
+      mode: "provider-error",
+      purpose: "Mentor review failed; the draft was held.",
+      outcome: timedOut ? "timed_out" : "error",
+      approved: false,
+      notes: timedOut ? "Draft review timed out." : "Draft review failed.",
+      errorCode: timedOut ? "TIMEOUT" : "PROVIDER_ERROR",
     };
+  } finally {
+    clearTimeout(timeout);
+    params.signal?.removeEventListener("abort", forwardAbort);
   }
 }

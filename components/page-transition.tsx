@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { usePathname } from "next/navigation";
 
 type Props = {
@@ -14,13 +14,17 @@ type Props = {
  */
 export function PageTransition({ children }: Props) {
   const pathname = usePathname();
+  const reducedMotion = useReducedMotion();
 
   return (
     <motion.div
       key={pathname}
-      initial={{ opacity: 0 }}
+      initial={reducedMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
-      transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+      transition={{
+        duration: reducedMotion ? 0 : 0.55,
+        ease: [0.22, 1, 0.36, 1],
+      }}
       style={{ minHeight: "100%" }}
     >
       {children}

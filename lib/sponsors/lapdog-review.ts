@@ -1,4 +1,7 @@
+import "server-only";
+
 import { GoogleGenAI } from "@google/genai";
+import { z } from "zod";
 
 type ReliabilityInput = {
   headline: string;
@@ -19,292 +22,326 @@ type ReliabilityInput = {
     status: string;
   }[];
   rawSourceText?: string;
+  canonicalPublication?: string;
+  prevalidatedSourceReachability?: SourceReachability[];
+  signal?: AbortSignal;
 };
 
-type ClaimVerdict = {
-  claim: string;
-  supported: boolean;
-  sourceEvidence: string | null;
-  verdict: "supported" | "unsupported" | "overstated";
-};
+const adversarialSchema = z
+  .object({
+    claims: z
+      .array(
+        z
+          .object({
+            claim: z.string().trim().min(1).max(600),
+            supported: z.boolean(),
+            sourceEvidence: z.string().trim().min(1).max(900).nullable(),
+            verdict: z.enum(["supported", "unsupported", "overstated"]),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100),
+    overallVerdict: z.enum([
+      "clean",
+      "minor-overstatement",
+      "unsupported-claims",
+    ]),
+    unsupportedCount: z.number().int().nonnegative().max(100),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const actual = value.claims.filter(
+      (claim) => claim.verdict !== "supported" || !claim.supported,
+    ).length;
+    if (value.unsupportedCount !== actual)
+      ctx.addIssue({
+        code: "custom",
+        message: "Unsupported count does not match claims",
+      });
+    if (value.overallVerdict === "clean" && actual > 0)
+      ctx.addIssue({
+        code: "custom",
+        message: "A clean verdict cannot include unsupported claims",
+      });
+  });
 
-type AdversarialResult = {
-  claims: ClaimVerdict[];
-  overallVerdict: "clean" | "minor-overstatement" | "unsupported-claims";
-  unsupportedCount: number;
-};
-
-type SourceReachability = {
-  url: string;
-  reachable: boolean;
-  status: number;
-};
+type AdversarialResult = z.infer<typeof adversarialSchema>;
+type SourceReachability = { url: string; reachable: boolean; status: number };
 
 export type LapdogReview = {
   provider: "Datadog Lapdog";
-  mode: "lapdog-traced" | "configured-forwarder" | "local-audit";
+  mode:
+    | "lapdog-traced"
+    | "configured-forwarder"
+    | "local-audit"
+    | "provider-error";
+  outcome:
+    | "pass"
+    | "fail"
+    | "unavailable"
+    | "malformed"
+    | "timed_out"
+    | "error";
   passed: boolean;
   score: number;
   verdict: string;
-  checks: {
-    name: string;
-    status: "pass" | "warn" | "fail";
-    comment: string;
-  }[];
+  checks: { name: string; status: "pass" | "warn" | "fail"; comment: string }[];
   traceSummary: string[];
-  sourceReachability?: SourceReachability[];
+  sourceReachability: SourceReachability[];
   adversarialReview?: AdversarialResult;
-  raw?: unknown;
-  error?: string;
+  errorCode?: string;
 };
 
+function combineSignal(parent: AbortSignal | undefined, timeoutMs: number) {
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort(parent?.reason);
+  parent?.addEventListener("abort", forwardAbort, { once: true });
+  const timeout = setTimeout(
+    () => controller.abort(new Error("Reliability check timed out")),
+    timeoutMs,
+  );
+  return {
+    signal: controller.signal,
+    cleanup() {
+      clearTimeout(timeout);
+      parent?.removeEventListener("abort", forwardAbort);
+    },
+  };
+}
+
 async function checkSourceReachability(
-  sources: { url: string }[]
-): Promise<SourceReachability[]> {
+  sources: { url: string }[],
+  signal?: AbortSignal,
+) {
   const results = await Promise.allSettled(
-    sources.map(async (source) => {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 4000);
+    sources.map(async (source): Promise<SourceReachability> => {
+      let url: URL;
       try {
-        const res = await fetch(source.url, {
-          method: "HEAD",
-          signal: controller.signal,
-          redirect: "follow",
-        });
-        clearTimeout(timeout);
-        return { url: source.url, reachable: res.ok || res.status < 500, status: res.status };
+        url = new URL(source.url);
       } catch {
-        clearTimeout(timeout);
         return { url: source.url, reachable: false, status: 0 };
       }
-    })
+      if (url.protocol !== "https:")
+        return { url: source.url, reachable: false, status: 0 };
+      const scoped = combineSignal(signal, 4_000);
+      try {
+        const response = await fetch(url, {
+          method: "HEAD",
+          signal: scoped.signal,
+          redirect: "error",
+        });
+        return {
+          url: source.url,
+          reachable: response.ok,
+          status: response.status,
+        };
+      } catch {
+        return { url: source.url, reachable: false, status: 0 };
+      } finally {
+        scoped.cleanup();
+      }
+    }),
   );
-
   return results.map((result, index) =>
     result.status === "fulfilled"
       ? result.value
-      : { url: sources[index]?.url ?? "", reachable: false, status: 0 }
+      : { url: sources[index]?.url ?? "", reachable: false, status: 0 },
   );
 }
 
-function extractJsonObject(text: string): unknown {
+function parseJson(text: string) {
   const cleaned = text
     .replace(/^```json/i, "")
     .replace(/^```/i, "")
     .replace(/```$/i, "")
     .trim();
   try {
-    return JSON.parse(cleaned);
+    return JSON.parse(cleaned) as unknown;
   } catch {
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      try {
-        return JSON.parse(cleaned.slice(start, end + 1));
-      } catch {
-        return null;
-      }
-    }
     return null;
   }
 }
 
 async function runAdversarialClaimCheck(
-  headline: string,
-  summary: string,
-  rawSourceText: string
-): Promise<AdversarialResult | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-
-  const ai = new GoogleGenAI({ apiKey });
-
-  const prompt = `You are a skeptical fact-checker for a civic news organization. Your job is to find failures, not confirm correctness.
-
-Published brief:
-Headline: ${headline}
-Summary: ${summary}
-
-Raw source text the brief was derived from:
-${rawSourceText.slice(0, 6000)}
-
-Instructions:
-- Break the headline and summary into individual factual claims: specific locations, timeframes, what changed, certainty level ("will", "may", "is expected to"), who is affected.
-- For each claim, identify what evidence in the source text supports it. Paraphrase and inference are fine — the brief does not have to quote verbatim. But the source must contain information that reasonably supports the claim.
-- Mark a claim "unsupported" only if the source text contains no information that reasonably supports it — not just because the wording differs.
-- Mark a claim "overstated" if the brief is more specific or more certain than the source warrants. Example: source says "possible work" but brief says "closure confirmed."
-- A brief that hedges more than the source (e.g. says "may affect" when source says "will close") is fine — that is appropriate caution.
-- Be skeptical about specificity: named streets, specific dates/times, and quantitative claims are the highest-risk hallucinations.
-
-Return JSON only:
-{
-  "claims": [
-    {
-      "claim": "specific claim from the brief",
-      "supported": boolean,
-      "sourceEvidence": "brief description of what in the source supports this, or null if nothing found",
-      "verdict": "supported" | "unsupported" | "overstated"
-    }
-  ],
-  "overallVerdict": "clean" | "minor-overstatement" | "unsupported-claims",
-  "unsupportedCount": number
-}`;
-
+  input: ReliabilityInput,
+): Promise<{
+  outcome:
+    | "pass"
+    | "fail"
+    | "unavailable"
+    | "malformed"
+    | "timed_out"
+    | "error";
+  result?: AdversarialResult;
+}> {
+  if (!input.rawSourceText?.trim() || !process.env.GEMINI_API_KEY)
+    return { outcome: "unavailable" };
+  const scoped = combineSignal(input.signal, 12_000);
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
-
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
+      model: process.env.PUBLIC_WIRE_ADK_MODEL || "gemini-2.5-flash",
+      contents: `Act as a skeptical civic fact-checker. Break every provider-visible field in the canonical publication into factual claims and compare every claim only against the captured source text. This includes the headline, summary, why-it-matters statement, affected groups, and source descriptions. Unsupported or more-certain wording must not pass. Return JSON only.\n\nCanonical publication JSON:\n${input.canonicalPublication || JSON.stringify({ headline: input.headline, summary: input.summary, sources: input.sources })}\n\nCaptured source text:\n${input.rawSourceText.slice(0, 8_000)}`,
+      config: {
+        abortSignal: scoped.signal,
+        responseMimeType: "application/json",
+        responseJsonSchema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["claims", "overallVerdict", "unsupportedCount"],
+          properties: {
+            claims: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                required: ["claim", "supported", "sourceEvidence", "verdict"],
+                properties: {
+                  claim: { type: "string" },
+                  supported: { type: "boolean" },
+                  sourceEvidence: {
+                    anyOf: [{ type: "string" }, { type: "null" }],
+                  },
+                  verdict: {
+                    type: "string",
+                    enum: ["supported", "unsupported", "overstated"],
+                  },
+                },
+              },
+            },
+            overallVerdict: {
+              type: "string",
+              enum: ["clean", "minor-overstatement", "unsupported-claims"],
+            },
+            unsupportedCount: { type: "integer" },
+          },
+        },
+      },
     });
-
-    clearTimeout(timeout);
-
-    const parsed = extractJsonObject(response.text || "") as Record<string, unknown> | null;
-
-    if (!parsed || !Array.isArray(parsed.claims)) return null;
-
+    const parsed = adversarialSchema.safeParse(parseJson(response.text || ""));
+    if (!parsed.success) return { outcome: "malformed" };
     return {
-      claims: (parsed.claims as Record<string, unknown>[]).map((c) => ({
-        claim: String(c.claim || ""),
-        supported: Boolean(c.supported),
-        sourceEvidence: c.sourceEvidence ? String(c.sourceEvidence) : null,
-        verdict: (c.verdict === "unsupported" || c.verdict === "overstated"
-          ? c.verdict
-          : "supported") as ClaimVerdict["verdict"],
-      })),
-      overallVerdict:
-        parsed.overallVerdict === "unsupported-claims"
-          ? "unsupported-claims"
-          : parsed.overallVerdict === "minor-overstatement"
-            ? "minor-overstatement"
-            : "clean",
-      unsupportedCount: Number(parsed.unsupportedCount ?? 0),
+      outcome: parsed.data.overallVerdict === "clean" ? "pass" : "fail",
+      result: parsed.data,
     };
   } catch {
-    return null;
+    return { outcome: scoped.signal.aborted ? "timed_out" : "error" };
+  } finally {
+    scoped.cleanup();
   }
 }
 
 export async function runLapdogReliabilityReview(
-  input: ReliabilityInput
+  input: ReliabilityInput,
 ): Promise<LapdogReview> {
-  const lapdogUrl = process.env.DATADOG_LAPDOG_URL;
-
-  const [reachability, adversarialReview] = await Promise.all([
-    checkSourceReachability(input.sources),
-    input.rawSourceText
-      ? runAdversarialClaimCheck(input.headline, input.summary, input.rawSourceText)
-      : Promise.resolve(null),
+  const [reachability, adversarial] = await Promise.all([
+    input.prevalidatedSourceReachability
+      ? Promise.resolve(input.prevalidatedSourceReachability)
+      : checkSourceReachability(input.sources, input.signal),
+    runAdversarialClaimCheck(input),
   ]);
-
-  const reachableCount = reachability.filter((s) => s.reachable).length;
-  const allReachable = reachableCount === reachability.length;
-  const adversarialPassed =
-    !adversarialReview || adversarialReview.overallVerdict !== "unsupported-claims";
-
-  const baseScore = input.geminiDecision?.publishable ? 88 : 55;
-  const reachabilityPenalty = allReachable ? 0 : Math.min(15, (reachability.length - reachableCount) * 7);
-  const adversarialPenalty = adversarialReview
-    ? Math.min(20, adversarialReview.unsupportedCount * 8)
-    : 0;
-  const score = Math.max(10, baseScore - reachabilityPenalty - adversarialPenalty);
-
+  const reachableCount = reachability.filter(
+    (source) => source.reachable,
+  ).length;
+  const allReachable =
+    input.sources.length > 0 && reachableCount === input.sources.length;
   const passed =
     Boolean(input.geminiDecision?.publishable) &&
-    adversarialPassed &&
-    reachableCount >= Math.ceil(reachability.length / 2);
-
-  const adversarialVerdictLine = adversarialReview
-    ? adversarialReview.overallVerdict === "clean"
-      ? `Adversarial claim check found no unsupported claims across ${adversarialReview.claims.length} assertions.`
-      : adversarialReview.overallVerdict === "minor-overstatement"
-        ? `Adversarial check flagged minor overstatement in ${adversarialReview.unsupportedCount} claim(s). Brief is cautious enough to publish.`
-        : `Adversarial check found ${adversarialReview.unsupportedCount} unsupported claim(s) not directly quoted from source text. Review before publishing.`
-    : "Adversarial claim check skipped — no raw source text available.";
-
-  const reachabilityLine = `${reachableCount}/${reachability.length} source URLs verified reachable.`;
-
+    input.sources.length > 0 &&
+    allReachable &&
+    adversarial.outcome === "pass";
+  const blockingOutcome =
+    adversarial.outcome === "pass"
+      ? passed
+        ? "pass"
+        : "fail"
+      : adversarial.outcome;
+  const score = passed
+    ? 100
+    : Math.max(
+        0,
+        70 -
+          (input.sources.length - reachableCount) * 20 -
+          (adversarial.result?.unsupportedCount ?? 1) * 15,
+      );
   const verdict = passed
-    ? `Publishable. ${reachabilityLine} ${adversarialVerdictLine}`
-    : `Hold. ${!input.geminiDecision?.publishable ? "Did not pass editorial relevance check." : ""} ${!adversarialPassed ? adversarialVerdictLine : ""} ${!allReachable && reachableCount < Math.ceil(reachability.length / 2) ? "Majority of source URLs unreachable." : ""}`.trim();
+    ? `Pass. ${reachableCount}/${input.sources.length} source URLs are reachable and every checked claim is supported.`
+    : `Hold. Required reliability checks did not all return an explicit pass.`;
 
-  const localReview: LapdogReview = {
+  const review: LapdogReview = {
     provider: "Datadog Lapdog",
     mode: process.env.DD_TRACE_AGENT_URL ? "lapdog-traced" : "local-audit",
+    outcome: blockingOutcome,
     passed,
     score,
     verdict,
     checks: [
       {
         name: "Source grounding",
-        status: input.sources.length >= 2 ? "pass" : "warn",
+        status: input.sources.length > 0 ? "pass" : "fail",
         comment:
-          input.sources.length >= 2
-            ? "Brief includes multiple public source references."
-            : "Brief has limited source coverage.",
+          input.sources.length > 0
+            ? `${input.sources.length} source receipt(s) supplied.`
+            : "No source receipts were supplied.",
       },
       {
         name: "Source reachability",
-        status: allReachable ? "pass" : reachableCount > 0 ? "warn" : "fail",
-        comment: `${reachabilityLine}${reachability.some((s) => !s.reachable) ? ` Unreachable: ${reachability.filter((s) => !s.reachable).map((s) => s.url).join(", ")}` : ""}`,
-      },
-      {
-        name: "Claim specificity",
-        status: input.headline.length > 20 && input.summary.length > 40 ? "pass" : "warn",
-        comment: "Headline and summary include a specific location/topic claim.",
+        status: allReachable ? "pass" : "fail",
+        comment: `${reachableCount}/${input.sources.length} source URLs returned an explicit success.`,
       },
       {
         name: "Adversarial claim verification",
-        status: !adversarialReview
-          ? "warn"
-          : adversarialReview.overallVerdict === "clean"
-            ? "pass"
-            : adversarialReview.overallVerdict === "minor-overstatement"
-              ? "warn"
-              : "fail",
-        comment: adversarialVerdictLine,
+        status: adversarial.outcome === "pass" ? "pass" : "fail",
+        comment:
+          adversarial.outcome === "pass"
+            ? "Every checked claim is supported by captured source text."
+            : `Claim verification ended as ${adversarial.outcome}.`,
       },
       {
-        name: "Resident impact",
-        status:
-          input.geminiDecision?.classification === "resident-relevant" ||
-          input.geminiDecision?.classification === "urgent"
-            ? "pass"
-            : "warn",
+        name: "Editorial approval",
+        status: input.geminiDecision?.publishable ? "pass" : "fail",
         comment:
           input.geminiDecision?.reason ||
-          "Gemini decision unavailable; using local policy fallback.",
-      },
-      {
-        name: "Trace completeness",
-        status: input.events.length >= 5 && input.agentTrace.length >= 4 ? "pass" : "warn",
-        comment: "Audit trail includes extraction, decision, grounding, and storage steps.",
+          "No explicit editorial pass was supplied.",
       },
     ],
-    traceSummary: input.events.map((event) => `${event.step}. ${event.source}: ${event.title}`),
+    traceSummary: input.events.map(
+      (event) => `${event.step}. ${event.source}: ${event.title}`,
+    ),
     sourceReachability: reachability,
-    adversarialReview: adversarialReview ?? undefined,
+    adversarialReview: adversarial.result,
+    errorCode: passed
+      ? undefined
+      : adversarial.outcome === "pass"
+        ? "RELIABILITY_FAILED"
+        : `ADVERSARIAL_${adversarial.outcome.toUpperCase()}`,
   };
 
-  if (!lapdogUrl) return localReview;
-
+  if (!process.env.DATADOG_LAPDOG_URL) return review;
+  const scoped = combineSignal(input.signal, 6_000);
   try {
-    const response = await fetch(lapdogUrl, {
+    const response = await fetch(process.env.DATADOG_LAPDOG_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input, localReview }),
+      signal: scoped.signal,
+      body: JSON.stringify({
+        verdict: review.verdict,
+        passed: review.passed,
+        checks: review.checks,
+      }),
     });
-
-    if (!response.ok) {
-      throw new Error(`Lapdog forwarder returned ${response.status}: ${await response.text()}`);
-    }
-
-    const raw = await response.json();
-
-    return { ...localReview, mode: "configured-forwarder", raw };
-  } catch (error) {
-    return { ...localReview, error: String(error) };
+    if (!response.ok) throw new Error("Forwarder failed");
+    return { ...review, mode: "configured-forwarder" };
+  } catch {
+    return {
+      ...review,
+      mode: "provider-error",
+      outcome: scoped.signal.aborted ? "timed_out" : "error",
+      passed: false,
+      errorCode: "FORWARDER_ERROR",
+    };
+  } finally {
+    scoped.cleanup();
   }
 }

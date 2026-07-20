@@ -8,11 +8,24 @@ export async function POST(request: Request) {
 
   try {
     const result = await runPublicWireScan();
-    return NextResponse.json(result);
-  } catch (error) {
     return NextResponse.json(
-      { error: "Failed to run PublicWire scan", detail: String(error) },
-      { status: 500 }
+      {
+        result: {
+          area: result.area,
+          checkedAt: result.lastChecked,
+          runtimeMode: result.runtimeMode,
+          metrics: result.metrics,
+          publicationState: result.publishing.state,
+          editorialOutcome: result.googleEditorial.reviewOutcome,
+          reliabilityOutcome: result.lapdogReview.outcome,
+        },
+      },
+      { headers: { "Cache-Control": "private, no-store" } },
+    );
+  } catch {
+    return NextResponse.json(
+      { error: { code: "SCAN_FAILED", message: "The scan did not complete." } },
+      { status: 500 },
     );
   }
 }

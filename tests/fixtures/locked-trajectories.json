@@ -1,0 +1,27 @@
+[
+  {
+    "caseKey": "conflict-held-after-dissent",
+    "events": [
+      { "eventKey": "1", "kind": "source.captured", "claimKeys": [], "sourceKeys": ["official-a"], "visibility": "internal", "safetyViolation": false },
+      { "eventKey": "2", "kind": "claims.extracted", "claimKeys": ["claim-a"], "sourceKeys": ["official-a"], "visibility": "internal", "safetyViolation": false },
+      { "eventKey": "3", "kind": "conflict.persisted", "claimKeys": ["claim-a"], "sourceKeys": ["official-a", "official-b"], "visibility": "internal", "safetyViolation": false },
+      { "eventKey": "4", "kind": "dissent.resolved", "claimKeys": ["claim-a"], "sourceKeys": ["official-a", "official-b"], "visibility": "internal", "safetyViolation": false },
+      { "eventKey": "5", "kind": "workflow.held", "claimKeys": ["claim-a"], "sourceKeys": [], "visibility": "public", "safetyViolation": false }
+    ],
+    "requiredKinds": ["source.captured", "claims.extracted", "conflict.persisted", "dissent.resolved", "workflow.held"],
+    "forbiddenKinds": ["publication.confirmed"],
+    "partialOrder": [["source.captured", "claims.extracted"], ["claims.extracted", "conflict.persisted"], ["conflict.persisted", "dissent.resolved"], ["dissent.resolved", "workflow.held"]],
+    "expectedPublication": false
+  },
+  {
+    "caseKey": "source-404-never-retracts",
+    "events": [
+      { "eventKey": "1", "kind": "source.unreachable", "claimKeys": [], "sourceKeys": ["official-a"], "visibility": "internal", "safetyViolation": false },
+      { "eventKey": "2", "kind": "workflow.held", "claimKeys": ["claim-a"], "sourceKeys": ["official-a"], "visibility": "public", "safetyViolation": false }
+    ],
+    "requiredKinds": ["source.unreachable", "workflow.held"],
+    "forbiddenKinds": ["correction.retracted", "publication.confirmed"],
+    "partialOrder": [["source.unreachable", "workflow.held"]],
+    "expectedPublication": false
+  }
+]

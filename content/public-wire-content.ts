@@ -199,7 +199,8 @@ export const newBrunswickEdition = {
     {
       id: "brief_george_street",
       slug: "george-street-construction",
-      headline: "George Street construction may affect downtown traffic this weekend",
+      headline:
+        "George Street construction may affect downtown traffic this weekend",
       area: "New Brunswick, NJ",
       category: "Transportation",
       status: "upcoming",
@@ -250,7 +251,7 @@ export const newBrunswickEdition = {
         "8:42 AM - Published as an upcoming transportation brief.",
         "8:44 AM - Transit advisory source checked; no separate service disruption added.",
       ],
-      artifactLabel: "cited.md demo artifact: seeded_brief_george_street",
+      artifactLabel: "cited.md preview artifact: seeded_brief_george_street",
       investigationTrace: [
         {
           time: "8:40:12",
@@ -318,7 +319,12 @@ export const newBrunswickEdition = {
         "A newly posted council agenda includes an item related to downtown parking policy and access.",
       whyItMatters:
         "Parking changes can affect commuters, students, employees, residents, visitors, and small businesses near downtown.",
-      whoIsAffected: ["Drivers", "downtown workers", "Rutgers students", "local businesses"],
+      whoIsAffected: [
+        "Drivers",
+        "downtown workers",
+        "Rutgers students",
+        "local businesses",
+      ],
       whatChanged:
         "The agenda monitor found a new meeting item related to downtown parking and marked it for follow-up after the meeting.",
       sources: [
@@ -337,8 +343,10 @@ export const newBrunswickEdition = {
       ],
       reliabilityReview:
         "Approved with cautious language. The brief should describe the agenda item, not claim a final policy change.",
-      updateHistory: ["8:42 AM - Published as a monitoring item for meeting follow-up."],
-      artifactLabel: "cited.md demo artifact: seeded_brief_parking_agenda",
+      updateHistory: [
+        "8:42 AM - Published as a monitoring item for meeting follow-up.",
+      ],
+      artifactLabel: "cited.md preview artifact: seeded_brief_parking_agenda",
       investigationTrace: [
         {
           time: "8:40:12",
@@ -410,7 +418,8 @@ export const newBrunswickEdition = {
     {
       id: "brief_rutgers_college_ave",
       slug: "rutgers-college-ave-event",
-      headline: "Rutgers-area event may increase foot traffic near College Avenue",
+      headline:
+        "Rutgers-area event may increase foot traffic near College Avenue",
       area: "New Brunswick, NJ",
       category: "Campus & Events",
       status: "upcoming",
@@ -425,7 +434,12 @@ export const newBrunswickEdition = {
         "A public Rutgers-area event listing points to scheduled activity near College Avenue that may bring more pedestrians and parking demand.",
       whyItMatters:
         "Campus events can ripple into nearby streets, parking lots, restaurants, and bus stops even when there is no formal traffic advisory.",
-      whoIsAffected: ["Students", "nearby residents", "drivers", "local businesses"],
+      whoIsAffected: [
+        "Students",
+        "nearby residents",
+        "drivers",
+        "local businesses",
+      ],
       whatChanged:
         "The events monitor found a scheduled Rutgers-area event and checked whether any official transportation advisory was attached.",
       sources: [
@@ -449,8 +463,11 @@ export const newBrunswickEdition = {
       ],
       reliabilityReview:
         "Approved. The entry is useful as a campus-area heads-up and does not overstate the transportation impact.",
-      updateHistory: ["8:42 AM - Published as a source-backed campus-area heads-up."],
-      artifactLabel: "cited.md demo artifact: seeded_brief_rutgers_college_ave",
+      updateHistory: [
+        "8:42 AM - Published as a source-backed campus-area heads-up.",
+      ],
+      artifactLabel:
+        "cited.md preview artifact: seeded_brief_rutgers_college_ave",
       investigationTrace: [
         {
           time: "8:40:10",
@@ -505,7 +522,8 @@ export const newBrunswickEdition = {
     {
       title: "Routine administrative minutes posted",
       source: "New Brunswick city notices",
-      reason: "Rejected because no resident-facing change or deadline was identified.",
+      reason:
+        "Rejected because no resident-facing change or deadline was identified.",
     },
     {
       title: "Procurement filing updated",
@@ -524,14 +542,16 @@ export const newBrunswickEdition = {
       agent: "Area Coverage",
       tool: "PublicWire registry",
       action: "Loaded the New Brunswick edition and civic layers.",
-      result: "Municipal, county, transit, campus, parking, and event layers selected.",
+      result:
+        "Municipal, county, transit, campus, parking, and event layers selected.",
     },
     {
       step: 2,
       agent: "Source Scout",
       tool: "Nimble draft integration",
       action: "Checked twelve public source targets.",
-      result: "Twenty-eight source surfaces were scanned; slower source families were queued for retry and did not block publication.",
+      result:
+        "Twenty-eight source surfaces were scanned; slower source families were queued for retry and did not block publication.",
     },
     {
       step: 3,
@@ -552,28 +572,31 @@ export const newBrunswickEdition = {
       agent: "Editorial Agent",
       tool: "Grounding policy",
       action: "Filtered for resident impact and source support.",
-      result: "Three publishable briefs, three visible rejections, no unsupported claims.",
+      result:
+        "Three publishable briefs, three visible rejections, no unsupported claims.",
     },
     {
       step: 6,
       agent: "Grounding Agent",
       tool: "Brief template",
       action: "Generated short local newspaper entries.",
-      result: "Each brief includes summary, why it matters, affected groups, and sources.",
+      result:
+        "Each brief includes summary, why it matters, affected groups, and sources.",
     },
     {
       step: 7,
       agent: "Reliability Reviewer",
       tool: "Public editor review",
-      action: "Reviewed source quality, claims, and wording before publication.",
-      result: "All demo briefs approved; two require follow-up monitoring.",
+      action:
+        "Reviewed source quality, claims, and wording before publication.",
+      result: "All preview briefs approved; two require follow-up monitoring.",
     },
     {
       step: 8,
       agent: "Grounding Agent + Reliability Reviewer",
       tool: "cited.md and Datadog draft layers",
       action: "Published the edition view and translated the agent trace.",
-      result: "Reader-facing audit logs and demo citation labels attached.",
+      result: "Reader-facing audit logs and preview citation labels attached.",
     },
   ] satisfies AgentEvent[],
 } satisfies PublicWireEdition;
@@ -621,9 +644,13 @@ function cloneEdition(params: {
       slug: `${params.slug}-${brief.slug}`,
       area: params.area,
       headline:
-        index === 0 ? params.topBrief : index === 1 ? params.secondBrief : params.thirdBrief,
+        index === 0
+          ? params.topBrief
+          : index === 1
+            ? params.secondBrief
+            : params.thirdBrief,
       category: index === 0 ? params.topCategory : brief.category,
-      artifactLabel: `cited.md demo artifact: seeded_${params.slug}_${brief.slug}`,
+      artifactLabel: `cited.md preview artifact: seeded_${params.slug}_${brief.slug}`,
     })),
   } satisfies PublicWireEdition;
 }
@@ -639,7 +666,8 @@ export const demoEditions: Record<string, PublicWireEdition> = {
     routineItemsRejected: 14,
     civicLayers: 9,
     topBrief: "Broad Street transit alert may affect downtown Newark commuters",
-    secondBrief: "Council agenda includes commercial corridor parking discussion",
+    secondBrief:
+      "Council agenda includes commercial corridor parking discussion",
     thirdBrief: "Arts district event may increase evening foot traffic",
   }),
   "jersey-city": cloneEdition({
@@ -650,9 +678,12 @@ export const demoEditions: Record<string, PublicWireEdition> = {
     sourcesMonitored: 44,
     routineItemsRejected: 13,
     civicLayers: 9,
-    topBrief: "Waterfront street work may affect evening access near Exchange Place",
-    secondBrief: "Council agenda includes development item near downtown corridor",
-    thirdBrief: "Community event may increase pedestrian activity near Grove Street",
+    topBrief:
+      "Waterfront street work may affect evening access near Exchange Place",
+    secondBrief:
+      "Council agenda includes development item near downtown corridor",
+    thirdBrief:
+      "Community event may increase pedestrian activity near Grove Street",
   }),
   "middlesex-county": cloneEdition({
     slug: "middlesex-county",
@@ -664,7 +695,8 @@ export const demoEditions: Record<string, PublicWireEdition> = {
     civicLayers: 11,
     topBrief: "County road advisory may affect commuter routes this weekend",
     secondBrief: "County agenda includes shared services funding discussion",
-    thirdBrief: "Regional event listing may affect traffic near campus corridors",
+    thirdBrief:
+      "Regional event listing may affect traffic near campus corridors",
   }),
   "rutgers-college-ave": cloneEdition({
     slug: "rutgers-college-ave",
@@ -674,22 +706,27 @@ export const demoEditions: Record<string, PublicWireEdition> = {
     sourcesMonitored: 22,
     routineItemsRejected: 7,
     civicLayers: 6,
-    topBrief: "College Avenue event may affect bus stops and nearby pedestrian flow",
+    topBrief:
+      "College Avenue event may affect bus stops and nearby pedestrian flow",
     secondBrief: "Parking authority source adds context for downtown access",
-    thirdBrief: "Campus listing may increase evening activity near College Avenue",
+    thirdBrief:
+      "Campus listing may increase evening activity near College Avenue",
   }),
 };
 
 export function getEditionBySlug(slug: string): PublicWireEdition {
-  return demoEditions[slug] ?? cloneEdition({
-    slug,
-    area: prettifySlug(slug),
-    sourcePrefix: prettifySlug(slug),
-    topCategory: "Civic Update",
-    topBrief: `${prettifySlug(slug)} civic agents found a resident-relevant local update`,
-    secondBrief: `${prettifySlug(slug)} agenda monitor found a public meeting item`,
-    thirdBrief: `${prettifySlug(slug)} event monitor found a local access heads-up`,
-  });
+  return (
+    demoEditions[slug] ??
+    cloneEdition({
+      slug,
+      area: prettifySlug(slug),
+      sourcePrefix: prettifySlug(slug),
+      topCategory: "Civic Update",
+      topBrief: `${prettifySlug(slug)} civic agents found a resident-relevant local update`,
+      secondBrief: `${prettifySlug(slug)} agenda monitor found a public meeting item`,
+      thirdBrief: `${prettifySlug(slug)} event monitor found a local access heads-up`,
+    })
+  );
 }
 
 export function getBriefById(idOrSlug: string) {

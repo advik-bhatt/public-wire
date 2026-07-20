@@ -7,20 +7,32 @@ import { TrustLayer } from "@/components/landing/trust-layer";
 import { Comparison } from "@/components/landing/comparison";
 import { ClosingCTA } from "@/components/landing/closing-cta";
 import { Colophon } from "@/components/landing/colophon";
+import {
+  landingShowcaseEnabled,
+  publicCaseFilesEnabled,
+} from "@/lib/public-wire-ui-flags";
 
 export default function HomePage() {
+  const showcase = landingShowcaseEnabled();
+  const dateLabel = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "America/New_York",
+  }).format(new Date());
   return (
     <>
       <LenisProvider />
       <main>
-        <Hero />
+        <Hero dateLabel={dateLabel} />
+        {showcase && <AgentSwarm caseFilesEnabled={publicCaseFilesEnabled()} />}
         <Problem />
         <HowItWorks />
-        <TrustLayer />
+        {showcase && <TrustLayer />}
         <Comparison />
-        <AgentSwarm />
         <ClosingCTA />
-        <Colophon />
+        <Colophon landing showcase={showcase} />
       </main>
     </>
   );

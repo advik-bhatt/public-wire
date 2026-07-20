@@ -1,225 +1,517 @@
+import { cache } from "react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ExternalLink } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, ExternalLink } from "lucide-react";
 import { Colophon } from "@/components/landing/colophon";
 import { Masthead } from "@/components/landing/masthead";
-import { demoEditions, getBriefById } from "@/content/public-wire-content";
+import { ArticleLifecycle } from "@/components/public-wire/brief/article-lifecycle";
+import { getBriefById } from "@/content/public-wire-content";
+import {
+  DEMO_PUBLIC_CASE_KEY,
+  referenceRuns,
+} from "@/lib/public-wire-view-models/fixtures";
+import type { ReferenceRun } from "@/lib/public-wire-view-models/reference-run-schema";
+import { referenceSourcePages } from "@/lib/public-wire-view-models/reference-run-selectors";
+import { ReferenceRunExplorer } from "@/components/public-wire/showcase/reference-run-explorer";
+import {
+  briefProvenanceEnabled,
+  publicCaseFilesEnabled,
+} from "@/lib/public-wire-ui-flags";
+import { getPublishedBriefBySlug } from "@/lib/investigations/public-projections";
 
-type BriefPageProps = {
-  params: Promise<{ id: string }>;
-};
+type Props = { params: Promise<{ id: string }> };
 
-export async function generateStaticParams() {
-  return Object.values(demoEditions)
-    .flatMap((edition) => edition.briefs)
-    .map((brief) => ({ id: brief.slug }));
-}
-
-export async function generateMetadata({ params }: BriefPageProps) {
-  const { id } = await params;
-  const brief = getBriefById(id);
-
-  if (!brief) {
+const loadBrief = cache(async function loadBrief(id: string) {
+  const detail = await getPublishedBriefBySlug(id);
+  if (detail?.publication) {
     return {
-      title: "Brief not found - PublicWire",
+      kind: "published" as const,
+      headline: detail.publication.headline,
+      summary: detail.publication.summary,
+      whyItMatters: detail.publication.whyItMatters,
+      whoIsAffected: detail.publication.whoIsAffected,
+      whatChanged:
+        detail.schemaVersion === "2"
+          ? detail.changeSummary?.summary
+          : undefined,
+      category: detail.publication.category,
+      areaKey: detail.summary.areaKey,
+      areaDisplayName: detail.summary.areaDisplayName,
+      publicCaseKey: detail.summary.publicCaseKey,
+      externalUrl: detail.publication.externalUrl,
+      publishedAt: detail.publication.publishedAt,
+      sourceReceiptCount: detail.publication.sourceReceiptCount,
+      materialClaimCount: detail.publication.materialClaimCount,
+      sources: detail.sourceReceipts.map((source) => ({
+        key: source.publicReceiptKey,
+        title: source.sourceTitle,
+        url: source.sourceUrl,
+        role: `${source.relation === "supports" ? "Supports" : source.relation === "contradicts" ? "Contradicts" : "Contextualizes"} a verified claim · ${source.artifactRevisionLabel}`,
+      })),
+      correctionNotice: detail.correctionNotice,
+      lifecycleDetail: detail,
+      correctionState: detail.summary.correctionState,
+      freshnessState: detail.summary.freshnessState,
+      referenceRun: undefined,
     };
   }
 
+  const preview = getBriefById(id);
+  const referenceRun = referenceRuns.find(
+    (run) => run.output?.briefSlug === id,
+  );
+  if (referenceRun?.output) {
+    return {
+      kind: "reference" as const,
+      headline: referenceRun.output.headline,
+      summary: referenceRun.output.summary,
+      whyItMatters:
+        referenceRun.detail.whyItMatters ??
+        referenceRun.intelligence?.residentAnswer.bottomLine ??
+        referenceRun.output.summary,
+      whoIsAffected: referenceRun.detail.whoIsAffected,
+      whatChanged: referenceRun.intelligence?.aggregation.explanation,
+      category: "Sanitation",
+      areaKey: referenceRun.detail.summary.areaKey,
+      areaDisplayName: referenceRun.detail.summary.areaDisplayName,
+      publicCaseKey: referenceRun.detail.summary.publicCaseKey,
+      externalUrl: undefined,
+      publishedAt: undefined,
+      sourceReceiptCount:
+        referenceRun.intelligence?.aggregation.uniqueSourceCount ??
+        new Set(
+          referenceRun.detail.sourceReceipts.map(
+            (receipt) => receipt.sourceUrl,
+          ),
+        ).size,
+      materialClaimCount:
+        referenceRun.detail.summary.materialClaimCounts.supported +
+        referenceRun.detail.summary.materialClaimCounts.disputed +
+        referenceRun.detail.summary.materialClaimCounts.missing,
+      sources: referenceSourcePages(referenceRun).map((source) => ({
+        key: source.key,
+        title: source.title,
+        url: source.url,
+        role: `${source.receiptCount} linked evidence receipt${source.receiptCount === 1 ? "" : "s"} · ${source.revisionLabels.join(" · ")}`,
+      })),
+      correctionNotice: undefined,
+      lifecycleDetail: undefined,
+      correctionState: "none" as const,
+      freshnessState: referenceRun.detail.summary.freshnessState,
+      referenceRun,
+    };
+  }
+  if (!preview) return undefined;
   return {
-    title: `${brief.headline} - PublicWire`,
+    kind: "preview" as const,
+    headline: preview.headline,
+    summary: preview.summary,
+    whyItMatters: preview.whyItMatters,
+    whoIsAffected: preview.whoIsAffected,
+    whatChanged: preview.whatChanged,
+    category: preview.category,
+    areaKey: "new-brunswick",
+    areaDisplayName: preview.area,
+    publicCaseKey: DEMO_PUBLIC_CASE_KEY,
+    externalUrl: undefined,
+    publishedAt: undefined,
+    sourceReceiptCount: preview.sources.length,
+    materialClaimCount: undefined,
+    sources: preview.sources.map((source) => ({ key: source.url, ...source })),
+    correctionNotice: undefined,
+    lifecycleDetail: undefined,
+    correctionState: "none" as const,
+    freshnessState: "unknown" as const,
+    referenceRun: undefined,
+  };
+});
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { id } = await params;
+  const brief = await loadBrief(id);
+  if (!brief)
+    return { title: "Brief not found · PublicWire", robots: { index: false } };
+  const indexable =
+    brief.kind === "published" &&
+    brief.correctionState !== "retracted" &&
+    brief.freshnessState === "current";
+  return {
+    title: `${brief.headline} · PublicWire`,
     description: brief.summary,
+    robots: indexable
+      ? { index: true, follow: true }
+      : { index: false, follow: false },
+    openGraph: indexable
+      ? { title: brief.headline, description: brief.summary, type: "article" }
+      : undefined,
   };
 }
 
-export default async function BriefPage({ params }: BriefPageProps) {
+export default async function BriefPage({ params }: Props) {
   const { id } = await params;
-  const brief = getBriefById(id);
-
+  const brief = await loadBrief(id);
   if (!brief) notFound();
+  const published = brief.kind === "published";
+  const showProvenance =
+    published || brief.kind === "reference" || briefProvenanceEnabled();
+  const showCaseFile = publicCaseFilesEnabled();
+  const lifecycleLabel =
+    brief.kind === "reference"
+      ? "Captured briefing"
+      : brief.correctionState === "retracted"
+        ? "Retracted"
+        : brief.correctionState === "corrected"
+          ? "Corrected"
+          : brief.correctionState === "clarified"
+            ? "Clarified"
+            : brief.freshnessState === "stale"
+              ? "Source change under review"
+              : published
+                ? "Published"
+                : "Reference output";
+  const publishedLabel = brief.publishedAt
+    ? new Intl.DateTimeFormat("en-US", {
+        dateStyle: "long",
+        timeStyle: "short",
+        timeZone: "America/New_York",
+      }).format(new Date(brief.publishedAt))
+    : undefined;
 
   return (
     <>
       <Masthead variant="solid" />
       <main className="bg-white text-black">
-        <section className="border-b border-black/10">
-          <div className="max-w-[1100px] mx-auto px-6 md:px-10 pt-14 md:pt-20 pb-12">
-            <Link
-              href="/local/new-brunswick"
-              className="inline-flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-neutral-500 hover:text-black mb-10"
-            >
-              <ArrowLeft className="size-4" /> Back to New Brunswick edition
+        <header className="border-b border-black/10">
+          <div className="mx-auto max-w-[1100px] px-6 pb-12 pt-14 md:px-10 md:pt-20">
+            <Link href={`/local/${brief.areaKey}`} className="back-link">
+              <ArrowLeft className="size-4" /> Back to edition
             </Link>
-
-            <div className="flex flex-wrap gap-2 mb-5">
-              <span className="text-[0.65rem] uppercase tracking-[0.15em] px-2 py-1 bg-black text-white">
-                {brief.verificationStatus}
+            <div className="mt-10 flex flex-wrap gap-2">
+              <span
+                className={`status-stamp ${brief.correctionState === "retracted" ? "status-danger" : brief.freshnessState === "stale" || brief.correctionState !== "none" ? "status-warning" : "status-neutral"}`}
+              >
+                {lifecycleLabel}
               </span>
-              <span className="text-[0.65rem] uppercase tracking-[0.15em] px-2 py-1 border border-black/20">
-                {brief.category}
-              </span>
-              <span className="text-[0.65rem] uppercase tracking-[0.15em] px-2 py-1 border border-black/20">
-                {brief.status}
+              <span className="status-stamp status-neutral">
+                {published
+                  ? `${brief.sourceReceiptCount} source receipt${brief.sourceReceiptCount === 1 ? "" : "s"}`
+                  : "Not a confirmed publication"}
               </span>
             </div>
-
-            <h1 className="text-4xl md:text-6xl lg:text-7xl font-bold leading-[0.96] tracking-tight mb-6 text-balance">
+            <h1 className="mt-6 text-balance text-4xl font-bold leading-[.96] tracking-tight md:text-6xl lg:text-7xl">
               {brief.headline}
             </h1>
-            <p className="text-sm uppercase tracking-[0.18em] text-neutral-500">
-              Published {brief.publishedAt} · {brief.area}
+            <p className="mt-6 max-w-3xl text-neutral-600">
+              {brief.kind === "reference"
+                ? "This captured briefing joins multiple official source pages and exposes the exact evidence and decision path. It is not represented as a provider-confirmed publication."
+                : brief.correctionState === "retracted"
+                  ? `PublicWire retained this historical route after retracting its local record. The linked external record is not represented as changed unless provider confirmation exists.`
+                  : brief.freshnessState === "stale"
+                    ? `A monitored source changed. The last verified record remains readable while affected claims are rechecked, but it is not being presented as current.`
+                    : published
+                      ? `Confirmed for ${brief.areaDisplayName}${publishedLabel ? ` on ${publishedLabel}` : ""} after claim-level evidence and final publication review.`
+                      : "This reference output exercises the production reading and provenance surface. Confirmed external records are linked only after provider confirmation."}
             </p>
+            {brief.externalUrl && (
+              <a
+                href={brief.externalUrl}
+                target="_blank"
+                rel="noreferrer"
+                referrerPolicy="no-referrer"
+                className="mt-6 inline-flex items-center gap-2 border-b border-black text-xs font-bold uppercase tracking-[.14em]"
+              >
+                Open cited publication <ExternalLink className="size-3" />
+              </a>
+            )}
           </div>
-        </section>
+        </header>
+
+        {brief.lifecycleDetail && (
+          <ArticleLifecycle
+            detail={brief.lifecycleDetail}
+            showCaseFile={showCaseFile}
+          />
+        )}
+
+        {brief.referenceRun?.intelligence && (
+          <ResidentAnswerSection run={brief.referenceRun} />
+        )}
+
+        {brief.referenceRun && (
+          <section
+            id="audit-run"
+            className="border-b border-black/10 bg-black px-4 py-12 text-white md:px-8"
+          >
+            <div className="mx-auto max-w-[1240px]">
+              <span className="eyebrow text-neutral-400">
+                Audit this answer
+              </span>
+              <h2 className="mt-3 max-w-3xl text-3xl font-bold md:text-5xl">
+                See what PublicWire combined, caught, and allowed.
+              </h2>
+              <ReferenceRunExplorer
+                runs={[brief.referenceRun]}
+                caseFilesEnabled={showCaseFile}
+                variant="case"
+                auditDefaultView="sources"
+              />
+            </div>
+          </section>
+        )}
 
         <section className="border-b border-black/10">
-          <div className="max-w-[1100px] mx-auto px-6 md:px-10 py-14">
-            <article className="grid lg:grid-cols-[1fr_320px] gap-12">
-              <div className="space-y-10">
+          <div className="mx-auto grid max-w-[1100px] gap-12 px-6 py-14 md:px-10 lg:grid-cols-[1fr_320px]">
+            <article className="space-y-10">
               <BriefSection title="Summary">
                 <p>{brief.summary}</p>
               </BriefSection>
-
-              <BriefSection title="Why It Matters">
+              <BriefSection title="Why it matters">
                 <p>{brief.whyItMatters}</p>
               </BriefSection>
-
-              <BriefSection title="Who Is Affected">
+              <BriefSection title="Who may be affected">
                 <div className="flex flex-wrap gap-2">
                   {brief.whoIsAffected.map((group) => (
                     <span
                       key={group}
-                      className="text-xs uppercase tracking-[0.14em] px-2 py-1 border border-black/20"
+                      className="border border-black/20 px-2 py-1 text-xs uppercase tracking-[.14em]"
                     >
                       {group}
                     </span>
                   ))}
                 </div>
               </BriefSection>
-
-              <BriefSection title="What Changed">
-                <p>{brief.whatChanged}</p>
-              </BriefSection>
-
-              <BriefSection title="Sources">
-                <div className="space-y-4">
-                  {brief.sources.map((source) => (
-                    <div key={source.title} className="border border-black/10 p-4">
-                      <a
-                        href={source.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-2 font-semibold hover:underline"
+              {brief.whatChanged && (
+                <BriefSection title="What changed">
+                  <p>{brief.whatChanged}</p>
+                </BriefSection>
+              )}
+              {showProvenance && (
+                <BriefSection
+                  title={
+                    published
+                      ? "Verified sources"
+                      : brief.kind === "reference"
+                        ? "Official sources"
+                        : "Source examples"
+                  }
+                >
+                  <div className="space-y-4">
+                    {brief.sources.map((source) => (
+                      <article
+                        key={source.key}
+                        className="border border-black/10 p-4"
                       >
-                        {source.title} <ExternalLink className="size-4" />
-                      </a>
-                      <p className="text-sm text-neutral-600 mt-2">{source.role}</p>
-                    </div>
-                  ))}
-                </div>
-              </BriefSection>
-              </div>
-
-              <aside className="space-y-4">
-                <div className="bg-black text-white p-6">
-                  <div className="text-[0.65rem] uppercase tracking-[0.2em] text-neutral-400 mb-3">
-                    Published artifact
+                        <a
+                          href={source.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          referrerPolicy="no-referrer"
+                          className="inline-flex min-h-11 items-center gap-2 font-semibold hover:underline"
+                        >
+                          {source.title} <ExternalLink className="size-4" />
+                        </a>
+                        <p className="mt-2 text-sm text-neutral-600">
+                          {source.role}
+                        </p>
+                      </article>
+                    ))}
                   </div>
-                  <p className="text-sm text-neutral-200">{brief.artifactLabel}</p>
-                  {brief.publishedUrl && (
-                    <a
-                      href={brief.publishedUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-3 inline-flex items-center gap-2 text-xs uppercase tracking-[0.16em] border border-white/30 px-3 py-2 hover:bg-white hover:text-black transition-colors"
+                </BriefSection>
+              )}
+            </article>
+
+            {showProvenance && (
+              <aside className="space-y-4">
+                <div className="bg-black p-6 text-white">
+                  <span className="eyebrow">Claims and sources</span>
+                  <p className="mt-4 text-sm leading-relaxed text-neutral-200">
+                    The brief links to a claim/evidence ledger with stable
+                    public keys, bounded excerpts, artifact revisions, and
+                    correction history.
+                  </p>
+                  {showCaseFile && (
+                    <Link
+                      href={`/local/${brief.areaKey}/investigations/${brief.publicCaseKey}`}
+                      className="mt-5 inline-flex items-center gap-2 border-b border-white text-xs uppercase tracking-[.14em]"
                     >
-                      View on cited.md <ExternalLink className="size-3" />
-                    </a>
+                      Open evidence ledger <ArrowUpRight className="size-3" />
+                    </Link>
                   )}
                 </div>
                 <div className="border border-black/10 p-6">
-                  <div className="text-[0.65rem] uppercase tracking-[0.2em] text-neutral-500 mb-3">
-                    Verification
-                  </div>
-                  <p className="text-2xl font-bold leading-tight">{brief.verificationStatus}</p>
+                  <span className="eyebrow">Provenance state</span>
+                  <strong className="mt-3 block text-2xl">
+                    {published
+                      ? "Confirmed"
+                      : brief.kind === "reference"
+                        ? "Captured briefing"
+                        : "Reference output"}
+                  </strong>
+                  <p className="mt-2 text-sm text-neutral-600">
+                    Publication state: {published ? "confirmed" : "none"}
+                  </p>
+                  {brief.materialClaimCount !== undefined && (
+                    <p className="mt-1 text-sm text-neutral-600">
+                      {brief.materialClaimCount} verified material claim
+                      {brief.materialClaimCount === 1 ? "" : "s"}
+                    </p>
+                  )}
                 </div>
               </aside>
-            </article>
+            )}
           </div>
         </section>
 
-        <section className="border-b border-black/10 bg-black text-white">
-          <div className="max-w-[1200px] mx-auto px-6 md:px-10 py-16">
-            <div className="mb-10 max-w-4xl">
-              <h2 className="text-xs uppercase tracking-[0.22em] text-neutral-400 mb-4">
-                Datadog-derived agent audit
+        {showProvenance && (
+          <section className="bg-black text-white">
+            <div className="mx-auto max-w-[1100px] px-6 py-16 md:px-10">
+              <span className="eyebrow">Verification path</span>
+              <h2 className="mt-3 max-w-4xl text-3xl font-bold leading-none tracking-tight md:text-5xl">
+                {published
+                  ? "Evidence to confirmed publication."
+                  : "A stage summary, not a prompt viewer."}
               </h2>
-              <p className="text-3xl md:text-5xl font-bold leading-[1] tracking-tight mb-4">
-                How the agents decided this was fit to publish.
-              </p>
-              <p className="text-base md:text-lg text-neutral-300 leading-relaxed">
-                The reliability trace reads raw agent events and explains what each
-                agent did. The actual prompts and source queries are preserved in italics.
-              </p>
-            </div>
-
-            <ol className="grid gap-px bg-white/15 border border-white/15">
-              {brief.investigationTrace.map((event, index) => (
-                <li
-                  key={`${index}-${event.time}-${event.agent}`}
-                  className={`grid gap-4 p-5 md:grid-cols-[90px_180px_1fr] ${
-                    event.status === "needs-evidence" || event.status === "resent"
-                      ? "bg-amber-100 text-black"
-                      : "bg-black text-white"
-                  }`}
-                >
-                  <div className="font-mono text-xs opacity-70">
-                    {String(index + 1).padStart(2, "0")} · {event.time}
-                  </div>
-                  <div>
-                    <div className="font-bold">{event.agent}</div>
-                    <div className="mt-2 inline-flex px-2 py-1 text-[0.6rem] uppercase tracking-[0.14em] border border-current">
-                      {event.status === "resent" ? "↩ resend" : event.status.replace("-", " ")}
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <p className="text-sm md:text-base leading-relaxed">{event.detail}</p>
-                    {event.query && (
-                      <p className="border-l border-current/30 pl-4 text-sm italic opacity-80">
-                        “{event.query}”
-                      </p>
-                    )}
-                    {event.technicalConfidence && (
-                      <p className="font-mono text-xs uppercase tracking-[0.16em] opacity-70">
-                        Technical confidence signal: {event.technicalConfidence}
-                      </p>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </section>
-
-        <section className="border-b border-black/10 bg-neutral-50">
-          <div className="max-w-[1100px] mx-auto px-6 md:px-10 py-14 grid lg:grid-cols-2 gap-10">
-            <BriefSection title="Reliability Reviewer Review">
-              <p>{brief.reliabilityReview}</p>
-            </BriefSection>
-
-            <BriefSection title="Update History">
-              <ol className="space-y-2">
-                {brief.updateHistory.map((item) => (
-                  <li key={item} className="text-sm text-neutral-700">
-                    {item}
-                  </li>
-                ))}
+              <ol className="mt-10 grid gap-px border border-white/15 bg-white/15">
+                <VerificationStage
+                  n="01"
+                  title="Capture"
+                  body="Approved public source versions are stored before claim extraction."
+                />
+                <VerificationStage
+                  n="02"
+                  title="Verify"
+                  body="Material claims map to exact artifact excerpts and offsets; missing or contradictory support stops progress."
+                />
+                <VerificationStage
+                  n="03"
+                  title="Review"
+                  body="Factual, style, reliability, and reachability checks bind to the exact canonical brief hash."
+                />
+                <VerificationStage
+                  n="04"
+                  title="Publish"
+                  body={
+                    published
+                      ? "A durable final gate created an idempotent publication intent and the provider returned a verified identity."
+                      : "Only a durable deterministic final gate may create a publication intent."
+                  }
+                />
               </ol>
+            </div>
+          </section>
+        )}
+
+        <section className="bg-neutral-50">
+          <div className="mx-auto max-w-[1100px] px-6 py-14 md:px-10">
+            <BriefSection title="Clarifications, corrections, and retractions">
+              {brief.correctionNotice ? (
+                <div className="border border-black/15 p-5">
+                  <strong className="capitalize">
+                    {brief.correctionNotice.type}
+                  </strong>
+                  <p className="mt-2 text-neutral-600">
+                    {brief.correctionNotice.rationaleCode
+                      .replaceAll("_", " ")
+                      .toLowerCase()}
+                  </p>
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <strong>
+                    No formal notice for this{" "}
+                    {published
+                      ? "publication"
+                      : brief.kind === "reference"
+                        ? "captured briefing"
+                        : "reference output"}
+                    .
+                  </strong>
+                  <p>
+                    Confirmed changes surface here and in the linked case file.
+                  </p>
+                </div>
+              )}
             </BriefSection>
           </div>
         </section>
       </main>
       <Colophon />
     </>
+  );
+}
+
+function ResidentAnswerSection({ run }: { run: ReferenceRun }) {
+  const answer = run.intelligence?.residentAnswer;
+  if (!answer) return null;
+
+  return (
+    <section
+      className="border-b border-black/10 bg-[#f5f2ea]"
+      aria-labelledby="resident-answer-heading"
+    >
+      <div className="mx-auto max-w-[1100px] px-6 py-12 md:px-10">
+        <span className="eyebrow">Resident answer</span>
+        <h2
+          id="resident-answer-heading"
+          className="mt-3 max-w-4xl text-3xl font-bold leading-tight md:text-5xl"
+        >
+          {answer.bottomLine}
+        </h2>
+        <div className="mt-10 grid gap-8 lg:grid-cols-2">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[.14em]">
+              What is new
+            </h3>
+            <ul className="mt-4 grid gap-3">
+              {answer.whatIsNew.map((item) => (
+                <li
+                  key={item}
+                  className="border-l-2 border-black pl-4 text-sm leading-relaxed"
+                >
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-[.14em]">
+              What to do
+            </h3>
+            <ul className="mt-4 grid gap-3">
+              {answer.actions.map((action) => (
+                <li
+                  key={action.label}
+                  className="border border-black/15 bg-white p-4"
+                >
+                  <strong className="block">{action.label}</strong>
+                  {action.deadline && (
+                    <span className="mt-2 block text-xs font-bold uppercase tracking-[.12em] text-neutral-500">
+                      {action.deadline}
+                    </span>
+                  )}
+                  <span className="mt-2 block text-xs text-neutral-600">
+                    {action.affectedGroups.join(" · ")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+        {answer.knownUnknowns.length > 0 && (
+          <div className="mt-8 border border-amber-400 bg-amber-50 p-5">
+            <h3 className="text-sm font-bold uppercase tracking-[.14em] text-amber-950">
+              Still unknown
+            </h3>
+            <ul className="mt-3 grid gap-2 text-sm text-neutral-700">
+              {answer.knownUnknowns.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -232,8 +524,30 @@ function BriefSection({
 }) {
   return (
     <section>
-      <h2 className="text-xs uppercase tracking-[0.22em] text-neutral-500 mb-3">{title}</h2>
-      <div className="text-base md:text-lg text-neutral-800 leading-relaxed">{children}</div>
+      <h2 className="mb-3 text-xs uppercase tracking-[.22em] text-neutral-500">
+        {title}
+      </h2>
+      <div className="text-base leading-relaxed text-neutral-800 md:text-lg">
+        {children}
+      </div>
     </section>
+  );
+}
+
+function VerificationStage({
+  n,
+  title,
+  body,
+}: {
+  n: string;
+  title: string;
+  body: string;
+}) {
+  return (
+    <li className="grid gap-4 bg-black p-5 md:grid-cols-[60px_160px_1fr]">
+      <span className="font-mono text-xs text-neutral-500">{n}</span>
+      <strong>{title}</strong>
+      <p className="text-sm leading-relaxed text-neutral-300">{body}</p>
+    </li>
   );
 }

@@ -1,68 +1,75 @@
+import "server-only";
+
 import { GoogleGenAI } from "@google/genai";
 import type { LocalChange, LocalSource } from "@/lib/public-wire-data";
 
 export type WriterResult = {
   provider: "Google Gemini (Writer)";
-  mode: "real-api" | "seeded-demo" | "api-error-fallback";
+  mode: "real-api" | "demo-no-publish" | "provider-error";
   purpose: string;
-  prose: string;
-  error?: string;
+  outcome: "pass" | "unavailable" | "timed_out" | "error";
+  prose?: string;
+  errorCode?: string;
 };
 
 export async function runWriterAgent(params: {
   change: LocalChange;
   sources: LocalSource[];
   area: string;
+  signal?: AbortSignal;
 }): Promise<WriterResult> {
   const apiKey = process.env.GEMINI_API_KEY;
-
   if (!apiKey) {
     return {
       provider: "Google Gemini (Writer)",
-      mode: "seeded-demo",
-      purpose: "Gemini API key missing. Using raw change text as prose.",
-      prose: params.change.whatChanged,
+      mode: "demo-no-publish",
+      purpose:
+        "Writer is unavailable; demo content remains explicitly unpublished.",
+      outcome: "unavailable",
+      errorCode: "MISSING_API_KEY",
     };
   }
 
-  const sourceNames = params.sources
-    .slice(0, 3)
-    .map((s) => s.name)
-    .join(", ");
-
-  const prompt = `You are the Writer agent for PublicWire, an autonomous civic newsroom.
-
-Area: ${params.area}
-Sources consulted: ${sourceNames}
-Approved civic change:
-- Headline: ${params.change.title}
-- What changed: ${params.change.whatChanged}
-- Why it matters: ${params.change.whyItMatters}
-- Who is affected: ${params.change.whoIsAffected.join(", ")}
-
-Write a 2-3 sentence resident-facing civic brief. Be factual, specific, and plain-language. Do not editorialize. Do not invent details not listed above. Return plain text only, no markdown, no headers.`;
-
-  const ai = new GoogleGenAI({ apiKey });
-
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort(params.signal?.reason);
+  params.signal?.addEventListener("abort", forwardAbort, { once: true });
+  const timeout = setTimeout(
+    () => controller.abort(new Error("Writer timed out")),
+    10_000,
+  );
   try {
+    const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
+      model: process.env.PUBLIC_WIRE_ADK_MODEL || "gemini-2.5-flash",
+      contents: `Write a 2-3 sentence factual civic brief using only the approved fields below. Do not invent details. Return plain text.\n\nArea: ${params.area}\nSources: ${params.sources
+        .slice(0, 3)
+        .map((source) => source.name)
+        .join(
+          ", ",
+        )}\nHeadline: ${params.change.title}\nWhat changed: ${params.change.whatChanged}\nWhy it matters: ${params.change.whyItMatters}\nWho is affected: ${params.change.whoIsAffected.join(", ")}`,
+      config: { abortSignal: controller.signal },
     });
-
+    const prose = response.text?.trim();
+    if (!prose || prose.length > 2_000)
+      throw new Error("Writer returned invalid prose");
     return {
       provider: "Google Gemini (Writer)",
       mode: "real-api",
-      purpose: "Writer agent produced a polished resident-facing brief from the approved civic change.",
-      prose: (response.text || params.change.whatChanged).trim(),
+      purpose: "Writer drafted prose from approved fields only.",
+      outcome: "pass",
+      prose,
     };
-  } catch (error) {
+  } catch {
+    const timedOut = controller.signal.aborted;
     return {
       provider: "Google Gemini (Writer)",
-      mode: "api-error-fallback",
-      purpose: "Writer agent failed. Using raw change text as prose.",
-      prose: params.change.whatChanged,
-      error: String(error),
+      mode: "provider-error",
+      purpose: "Writer failed; no draft is eligible for publication.",
+      outcome: timedOut ? "timed_out" : "error",
+      errorCode: timedOut ? "TIMEOUT" : "PROVIDER_ERROR",
     };
+  } finally {
+    clearTimeout(timeout);
+    params.signal?.removeEventListener("abort", forwardAbort);
   }
 }

@@ -1,54 +1,58 @@
+import { notFound } from "next/navigation";
 import { Masthead } from "@/components/landing/masthead";
 import { Colophon } from "@/components/landing/colophon";
-import { LenisProvider } from "@/components/landing/lenis-provider";
 import { PublicWireEdition } from "@/components/edition/public-wire-edition";
-import { getEditionBySlug } from "@/content/public-wire-content";
+import { resolveArea } from "@/lib/areas/registry";
+import { getEditionProjection } from "@/lib/investigations/public-projections";
+import {
+  publicCaseFilesEnabled,
+  publicCaseRequestsEnabled,
+} from "@/lib/public-wire-ui-flags";
+import { referenceRuns } from "@/lib/public-wire-view-models/fixtures";
 
-type AreaPageProps = {
-  params: Promise<{ area: string }>;
-  searchParams: Promise<{ focus?: string; areaName?: string; q?: string; query?: string; live?: string }>;
-};
+type Props = { params: Promise<{ area: string }> };
 
-function prettifyArea(slug: string) {
-  return slug
-    .split("-")
-    .map((part) => part[0]?.toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
-export async function generateMetadata({ params }: AreaPageProps) {
-  const { area } = await params;
-  const edition = getEditionBySlug(area);
-  const pretty = edition.area || prettifyArea(area);
+export async function generateMetadata({ params }: Props) {
+  const { area: areaKey } = await params;
+  const area = resolveArea(areaKey);
+  if (!area)
+    return {
+      title: "Edition not found · PublicWire",
+      robots: { index: false },
+    };
+  const edition = await getEditionProjection(areaKey);
+  if (!edition || edition.runtimeMode !== "real") {
+    return {
+      title: `${area.displayName} reference edition · PublicWire`,
+      description: `Contract-valid Google ADK workflow scenarios and evidence views for ${area.displayName}.`,
+      robots: { index: false, follow: false },
+    };
+  }
   return {
-    title: `PublicWire ${pretty} , Today's Civic Briefing`,
-    description: `Self-running civic newsroom for ${pretty}. Agent-monitored. Source-cited. Reliability Reviewer-reviewed.`,
+    title: `${area.displayName} civic edition · PublicWire`,
+    description: `Confirmed civic briefs and disclosed source-backed investigations for ${area.displayName}.`,
+    robots: { index: true, follow: true },
   };
 }
 
-export default async function AreaPage({ params, searchParams }: AreaPageProps) {
-  const { area } = await params;
-  const { focus, areaName, q, query, live } = await searchParams;
-  const focusList = focus ? focus.split(",") : [];
-  const pretty = areaName
-    ? decodeURIComponent(areaName)
-    : getEditionBySlug(area).area || prettifyArea(area);
-  const initialQuery = q || query || "";
-  const autoRun = live === "1" || live === "true";
-
+export default async function AreaPage({ params }: Props) {
+  const { area: areaKey } = await params;
+  if (!resolveArea(areaKey)) notFound();
+  const edition = await getEditionProjection(areaKey);
+  if (!edition) notFound();
+  const editionReferenceRuns =
+    edition.runtimeMode === "demo"
+      ? referenceRuns.filter((run) => run.detail.summary.areaKey === areaKey)
+      : undefined;
   return (
     <>
-      <LenisProvider />
       <Masthead variant="solid" />
-      <main>
-        <PublicWireEdition
-          areaSlug={area}
-          areaName={pretty}
-          focus={focusList}
-          initialQuery={initialQuery}
-          autoRun={autoRun}
-        />
-      </main>
+      <PublicWireEdition
+        edition={edition}
+        referenceRuns={editionReferenceRuns}
+        caseFilesEnabled={publicCaseFilesEnabled()}
+        caseRequestsEnabled={await publicCaseRequestsEnabled()}
+      />
       <Colophon />
     </>
   );

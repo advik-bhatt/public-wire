@@ -37,13 +37,21 @@ function textFromResult(raw: unknown) {
 function sourceCategory(input: unknown): LocalSource["category"] {
   const value = String(input || "").toLowerCase();
 
-  if (value.includes("transit") || value.includes("road") || value.includes("traffic")) {
+  if (
+    value.includes("transit") ||
+    value.includes("road") ||
+    value.includes("traffic")
+  ) {
     return "transportation";
   }
 
   if (value.includes("school")) return "school";
   if (value.includes("event")) return "event";
-  if (value.includes("permit") || value.includes("planning") || value.includes("development")) {
+  if (
+    value.includes("permit") ||
+    value.includes("planning") ||
+    value.includes("development")
+  ) {
     return "permit";
   }
 
@@ -54,7 +62,11 @@ function changeCategory(input: unknown): LocalChange["category"] {
   const value = String(input || "").toLowerCase();
 
   if (value.includes("construction")) return "construction";
-  if (value.includes("transport") || value.includes("road") || value.includes("traffic")) {
+  if (
+    value.includes("transport") ||
+    value.includes("road") ||
+    value.includes("traffic")
+  ) {
     return "transportation";
   }
 
@@ -82,7 +94,7 @@ function status(input: unknown): LocalChange["status"] {
   return "new";
 }
 
-function extractJsonObject(text: string) {
+function extractJsonObject(text: string): Record<string, unknown> | null {
   const cleaned = text
     .replace(/^```json/i, "")
     .replace(/^```/i, "")
@@ -90,14 +102,17 @@ function extractJsonObject(text: string) {
     .trim();
 
   try {
-    return JSON.parse(cleaned);
+    return JSON.parse(cleaned) as Record<string, unknown>;
   } catch {
     const start = cleaned.indexOf("{");
     const end = cleaned.lastIndexOf("}");
 
     if (start >= 0 && end > start) {
       try {
-        return JSON.parse(cleaned.slice(start, end + 1));
+        return JSON.parse(cleaned.slice(start, end + 1)) as Record<
+          string,
+          unknown
+        >;
       } catch {
         return null;
       }
@@ -107,11 +122,18 @@ function extractJsonObject(text: string) {
   }
 }
 
-async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
   let timeout: ReturnType<typeof setTimeout>;
 
   const timeoutPromise = new Promise<never>((_, reject) => {
-    timeout = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    timeout = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms}ms`)),
+      ms,
+    );
   });
 
   try {
@@ -138,7 +160,7 @@ function buildLiveSearchSource(area: string, raw: unknown): LocalSource {
 // actual extraction primitive rather than just a search bar.
 function tryParseNimbleStructured(
   raw: unknown,
-  area: string
+  area: string,
 ): { sources: LocalSource[]; changes: LocalChange[] } | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
@@ -146,26 +168,44 @@ function tryParseNimbleStructured(
   if (!Array.isArray(r.sources) || !Array.isArray(r.changes)) return null;
   if (r.sources.length === 0 && r.changes.length === 0) return null;
 
-  const sources: LocalSource[] = (r.sources as any[]).slice(0, 8).map((source, index) => ({
-    id: slugify(source.id || source.name || `source_${index + 1}`) || `source_${index + 1}`,
-    name: String(source.name || `Public source for ${area}`).slice(0, 140),
-    url: String(source.url || "Nimble Search API result").slice(0, 300),
-    category: sourceCategory(source.category),
-    sourceType: source.sourceType === "official" ? "official" : "public",
-  }));
+  const sources: LocalSource[] = (r.sources as unknown[])
+    .slice(0, 8)
+    .map((value, index) => {
+      const source =
+        value && typeof value === "object"
+          ? (value as Record<string, unknown>)
+          : {};
+      return {
+        id:
+          slugify(String(source.id || source.name || `source_${index + 1}`)) ||
+          `source_${index + 1}`,
+        name: String(source.name || `Public source for ${area}`).slice(0, 140),
+        url: String(source.url || "Nimble Search API result").slice(0, 300),
+        category: sourceCategory(source.category),
+        sourceType: source.sourceType === "official" ? "official" : "public",
+      };
+    });
 
   if (sources.length === 0) return null;
 
   const sourceIds = new Set(sources.map((s) => s.id));
   const defaultSourceId = sources[0].id;
 
-  const changes: LocalChange[] = (r.changes as any[])
+  const changes: LocalChange[] = (r.changes as unknown[])
     .slice(0, 5)
-    .map((change, index) => {
-      const rawSourceId = slugify(change.sourceId || "");
-      const sourceId = sourceIds.has(rawSourceId) ? rawSourceId : defaultSourceId;
+    .map((value, index) => {
+      const change =
+        value && typeof value === "object"
+          ? (value as Record<string, unknown>)
+          : {};
+      const rawSourceId = slugify(String(change.sourceId || ""));
+      const sourceId = sourceIds.has(rawSourceId)
+        ? rawSourceId
+        : defaultSourceId;
       return {
-        id: slugify(change.id || change.title || `change_${index + 1}`) || `change_${index + 1}`,
+        id:
+          slugify(String(change.id || change.title || `change_${index + 1}`)) ||
+          `change_${index + 1}`,
         sourceId,
         title: String(change.title || `Civic update for ${area}`).slice(0, 180),
         category: changeCategory(change.category),
@@ -174,12 +214,18 @@ function tryParseNimbleStructured(
         whatChanged: String(change.whatChanged || "").slice(0, 500),
         whyItMatters: String(change.whyItMatters || "").slice(0, 500),
         whoIsAffected: Array.isArray(change.whoIsAffected)
-          ? change.whoIsAffected.map((item: unknown) => String(item).slice(0, 80)).slice(0, 8)
+          ? change.whoIsAffected
+              .map((item: unknown) => String(item).slice(0, 80))
+              .slice(0, 8)
           : ["residents"],
         evidence: Array.isArray(change.evidence)
-          ? change.evidence.map((item: unknown) => String(item).slice(0, 300)).slice(0, 6)
+          ? change.evidence
+              .map((item: unknown) => String(item).slice(0, 300))
+              .slice(0, 6)
           : ["Extracted via Nimble output_schema structured extraction."],
-        rejectionReason: change.rejectionReason ? String(change.rejectionReason).slice(0, 300) : undefined,
+        rejectionReason: change.rejectionReason
+          ? String(change.rejectionReason).slice(0, 300)
+          : undefined,
       };
     })
     .filter((c) => c.whatChanged && c.whyItMatters);
@@ -258,52 +304,83 @@ Return:
       contents: prompt,
     }),
     GEMINI_TIMEOUT_MS,
-    "Gemini civic extraction"
+    "Gemini civic extraction",
   );
 
   const parsed = extractJsonObject(response.text || "");
-  const sourceRows = Array.isArray(parsed?.sources) ? parsed.sources : [];
-  const changeRows = Array.isArray(parsed?.changes) ? parsed.changes : [];
+  const sourceRows: unknown[] = Array.isArray(parsed?.sources)
+    ? parsed.sources
+    : [];
+  const changeRows: unknown[] = Array.isArray(parsed?.changes)
+    ? parsed.changes
+    : [];
 
   const fallbackSource = buildLiveSearchSource(params.area, params.raw);
 
-  const sources: LocalSource[] = sourceRows.slice(0, 8).map((source: any, index: number) => ({
-    id: slugify(source.id || source.name || `source_${index + 1}`) || `source_${index + 1}`,
-    name: String(source.name || `Public source for ${params.area}`).slice(0, 140),
-    url: String(source.url || "Nimble Search API result").slice(0, 300),
-    category: sourceCategory(source.category),
-    sourceType: source.sourceType === "official" ? "official" : "public",
-  }));
+  const sources: LocalSource[] = sourceRows.slice(0, 8).map((value, index) => {
+    const source =
+      value && typeof value === "object"
+        ? (value as Record<string, unknown>)
+        : {};
+    return {
+      id:
+        slugify(String(source.id || source.name || `source_${index + 1}`)) ||
+        `source_${index + 1}`,
+      name: String(source.name || `Public source for ${params.area}`).slice(
+        0,
+        140,
+      ),
+      url: String(source.url || "Nimble Search API result").slice(0, 300),
+      category: sourceCategory(source.category),
+      sourceType: source.sourceType === "official" ? "official" : "public",
+    };
+  });
 
   const sourceIds = new Set(sources.map((source) => source.id));
   const defaultSourceId = sources[0]?.id || fallbackSource.id;
 
-  const changes: LocalChange[] = changeRows.slice(0, 5).map((change: any, index: number) => {
-    const rawSourceId = slugify(change.sourceId || "");
+  const changes: LocalChange[] = changeRows.slice(0, 5).map((value, index) => {
+    const change =
+      value && typeof value === "object"
+        ? (value as Record<string, unknown>)
+        : {};
+    const rawSourceId = slugify(String(change.sourceId || ""));
     const sourceId = sourceIds.has(rawSourceId) ? rawSourceId : defaultSourceId;
 
     return {
-      id: slugify(change.id || change.title || `change_${index + 1}`) || `change_${index + 1}`,
+      id:
+        slugify(String(change.id || change.title || `change_${index + 1}`)) ||
+        `change_${index + 1}`,
       sourceId,
-      title: String(change.title || `Civic update found for ${params.area}`).slice(0, 180),
+      title: String(
+        change.title || `Civic update found for ${params.area}`,
+      ).slice(0, 180),
       category: changeCategory(change.category),
       status: status(change.status),
       importance: importance(change.importance),
       whatChanged: String(change.whatChanged || "").slice(0, 500),
       whyItMatters: String(change.whyItMatters || "").slice(0, 500),
       whoIsAffected: Array.isArray(change.whoIsAffected)
-        ? change.whoIsAffected.map((item: unknown) => String(item).slice(0, 80)).slice(0, 8)
+        ? change.whoIsAffected
+            .map((item: unknown) => String(item).slice(0, 80))
+            .slice(0, 8)
         : ["residents"],
       evidence: Array.isArray(change.evidence)
-        ? change.evidence.map((item: unknown) => String(item).slice(0, 300)).slice(0, 6)
+        ? change.evidence
+            .map((item: unknown) => String(item).slice(0, 300))
+            .slice(0, 6)
         : ["Extracted from Nimble search evidence."],
-      rejectionReason: change.rejectionReason ? String(change.rejectionReason).slice(0, 300) : undefined,
+      rejectionReason: change.rejectionReason
+        ? String(change.rejectionReason).slice(0, 300)
+        : undefined,
     };
   });
 
   return {
     sources: sources.length ? sources : [fallbackSource],
-    changes: changes.filter((change) => change.whatChanged && change.whyItMatters),
+    changes: changes.filter(
+      (change) => change.whatChanged && change.whyItMatters,
+    ),
   };
 }
 
@@ -312,11 +389,16 @@ export async function nimbleRunCivicScan(params: {
   requestedTopic?: string;
   fallbackSources: LocalSource[];
   fallbackChanges: LocalChange[];
+  signal?: AbortSignal;
 }): Promise<NimbleCivicResult> {
+  params.signal?.throwIfAborted();
   const apiKey = process.env.NIMBLE_API_KEY;
 
   if (!apiKey) {
-    const allowSeededFallback = isNewBrunswick(params.area) && !params.requestedTopic;
+    const allowSeededFallback =
+      process.env.NODE_ENV !== "production" &&
+      isNewBrunswick(params.area) &&
+      !params.requestedTopic;
 
     return {
       provider: "Nimble",
@@ -346,7 +428,10 @@ export async function nimbleRunCivicScan(params: {
               id: { type: "string" },
               name: { type: "string" },
               url: { type: "string" },
-              category: { type: "string", enum: ["city", "transportation", "school", "event", "permit"] },
+              category: {
+                type: "string",
+                enum: ["city", "transportation", "school", "event", "permit"],
+              },
               sourceType: { type: "string", enum: ["official", "public"] },
             },
           },
@@ -359,9 +444,21 @@ export async function nimbleRunCivicScan(params: {
               id: { type: "string" },
               sourceId: { type: "string" },
               title: { type: "string" },
-              category: { type: "string", enum: ["transportation", "city-agenda", "event", "school", "construction"] },
+              category: {
+                type: "string",
+                enum: [
+                  "transportation",
+                  "city-agenda",
+                  "event",
+                  "school",
+                  "construction",
+                ],
+              },
               status: { type: "string", enum: ["new", "updated", "rejected"] },
-              importance: { type: "string", enum: ["urgent", "resident-relevant", "routine", "unsupported"] },
+              importance: {
+                type: "string",
+                enum: ["urgent", "resident-relevant", "routine", "unsupported"],
+              },
               whatChanged: { type: "string" },
               whyItMatters: { type: "string" },
               whoIsAffected: { type: "array", items: { type: "string" } },
@@ -381,6 +478,7 @@ export async function nimbleRunCivicScan(params: {
       focus: "general",
       search_depth: "lite",
       output_schema: nimbleCivicSchema,
+      signal: params.signal,
     });
 
     const nimbleStructured = tryParseNimbleStructured(result, params.area);
@@ -398,7 +496,7 @@ export async function nimbleRunCivicScan(params: {
       };
     }
 
-    // Nimble returned unstructured text — Gemini parses it as the extraction fallback.
+    // Gemini parses unstructured Nimble text as the extraction fallback.
     const extracted = await extractChangesWithGemini({
       area: params.area,
       requestedTopic,
@@ -416,7 +514,10 @@ export async function nimbleRunCivicScan(params: {
       raw: result,
     };
   } catch (error) {
-    const allowSeededFallback = isNewBrunswick(params.area) && !params.requestedTopic;
+    const allowSeededFallback =
+      process.env.NODE_ENV !== "production" &&
+      isNewBrunswick(params.area) &&
+      !params.requestedTopic;
 
     return {
       provider: "Nimble",

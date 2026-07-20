@@ -1,24 +1,36 @@
 "use client";
 
 import Image from "next/image";
-import { useScroll, useTransform, motion } from "framer-motion";
+import {
+  useReducedMotion,
+  useScroll,
+  useTransform,
+  motion,
+} from "framer-motion";
 import { useRef } from "react";
 import { Masthead } from "./masthead";
 import { SearchDialog } from "./search-dialog";
 
-export function Hero() {
+export function Hero({ dateLabel }: { dateLabel: string }) {
   const container = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({
     target: container,
     offset: ["start start", "end start"],
   });
 
-  const y = useTransform(scrollYProgress, [0, 1], ["0vh", "150vh"]);
+  const y = useTransform(scrollYProgress, [0, 1], ["0vh", "-20vh"]);
+  const reducedMotion = useReducedMotion();
 
   return (
-    <div ref={container} className="h-screen overflow-hidden relative">
+    <div
+      ref={container}
+      className="relative min-h-[max(100svh,44rem)] overflow-hidden"
+    >
       <Masthead variant="overlay" />
-      <motion.div style={{ y }} className="relative h-full">
+      <motion.div
+        style={reducedMotion ? undefined : { y }}
+        className="relative min-h-[max(100svh,44rem)]"
+      >
         <Image
           src="/images/newspaper1.avif"
           alt="Stack of local newspapers"
@@ -27,6 +39,10 @@ export function Hero() {
           sizes="100vw"
           style={{ objectFit: "cover" }}
           className="brightness-[0.55] grayscale"
+        />
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 bg-gradient-to-b from-black/55 via-black/25 to-black/70"
         />
         {/* Dateline at top edge over image */}
         <div className="absolute top-24 left-6 md:left-10 z-10 text-white">
@@ -38,8 +54,12 @@ export function Hero() {
 
         <div className="absolute inset-0 flex items-end z-10">
           <div className="text-left text-white max-w-5xl px-6 md:px-10 pb-20 md:pb-28">
-            <h1 className="text-5xl md:text-7xl lg:text-9xl font-bold leading-[0.92] tracking-tight mb-6 text-balance">
-              Your town,<br />covered by<br />civic agents.
+            <h1 className="text-5xl md:text-7xl lg:text-9xl font-bold leading-[0.92] tracking-tight mb-6 text-balance [text-shadow:0_2px_24px_rgba(0,0,0,.65)]">
+              Your town,
+              <br />
+              covered by
+              <br />
+              civic agents.
             </h1>
             <div className="relative mb-8 inline-block max-w-2xl">
               <div className="relative">
@@ -58,17 +78,18 @@ export function Hero() {
                       "0 0 6px rgba(255,255,255,0.65), 0 0 18px rgba(255,255,255,0.38), 0 2px 10px rgba(0,0,0,0.9), 0 4px 24px rgba(0,0,0,0.75)",
                   }}
                 >
-                  PublicWire is a self-running local newspaper. An agent swarm
-                  monitors public city sites, county notices, transit alerts,
-                  agendas, and event calendars , and publishes short, cited briefs
-                  when something actually changes for the people who live there.
+                  PublicWire is a civic investigation system designed to watch
+                  public records, compare changes, verify material claims, and
+                  publish only after evidence and reliability gates pass.
                 </p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <SearchDialog
                 trigger={
-                  <button className="btn-outline-light">Find your edition →</button>
+                  <button className="btn-outline-light">
+                    Find your edition →
+                  </button>
                 }
               />
               <a href="#how" className="btn-outline-light border-white/40">
@@ -81,8 +102,8 @@ export function Hero() {
         {/* Bottom dateline strip */}
         <div className="absolute bottom-0 left-0 right-0 z-10 border-t border-white/20 bg-black/30 backdrop-blur-sm">
           <div className="px-6 md:px-10 py-3 flex flex-wrap items-center justify-between gap-2 text-[0.65rem] md:text-xs uppercase tracking-[0.22em] text-white/70">
-            <span>{new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</span>
-            <span>The desk is open · sources monitored · briefs cited</span>
+            <span>{dateLabel}</span>
+            <span>Google ADK · evidence-backed civic workflow</span>
             <span className="hidden md:inline">Scroll ↓</span>
           </div>
         </div>
