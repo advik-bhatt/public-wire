@@ -338,6 +338,7 @@ export const publicInvestigationEventSchema = z.discriminatedUnion(
             iteration: z.number().int().min(1).max(2),
             newSourceCount: z.number().int().nonnegative().max(50),
             outcome: z.enum([
+              "new_evidence",
               "supported",
               "unsupported",
               "contradicted",

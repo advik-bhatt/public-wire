@@ -29,7 +29,7 @@ const configSchema = z
       .string()
       .min(1)
       .max(80)
-      .default("2026-07-19.1"),
+      .default("2026-07-20.1"),
     PUBLIC_WIRE_SCHEMA_VERSION: z.string().min(1).max(40).default("1"),
     PUBLIC_WIRE_POLICY_VERSION: z
       .string()

@@ -36,8 +36,13 @@ export function buildCanonicalCivicBrief(params: {
   category: string;
   draft: Draft;
   extraction: Extraction;
-  source: { title: string; url: string };
+  sources: Array<{ title: string; url: string }>;
 }): CivicBrief {
+  const sources = [
+    ...new Map(params.sources.map((source) => [source.url, source])).values(),
+  ];
+  if (sources.length === 0)
+    throw new Error("PUBLIC_WIRE_BRIEF_SOURCE_REQUIRED");
   return {
     id: `brief-${params.investigationId}-${params.revision}`,
     headline: params.draft.headline,
@@ -48,16 +53,18 @@ export function buildCanonicalCivicBrief(params: {
     summary: bounded(params.draft.prose, 900),
     whyItMatters: bounded(params.extraction.whyItMatters, 900),
     whoIsAffected: params.extraction.whoIsAffected,
-    sources: [
-      {
-        title: bounded(params.source.title, 180),
-        url: params.source.url,
-        role: "Primary captured source supporting the verified material claims.",
-      },
-    ],
+    sources: sources.map((source, index) => ({
+      title: bounded(source.title, 180),
+      url: source.url,
+      role:
+        index === 0
+          ? "Primary captured source supporting the verified material claims."
+          : "Additional captured source added during independent evidence repair.",
+    })),
     agentTrace: [
-      "Captured and versioned the source artifact.",
+      `Captured and versioned ${sources.length} source artifact${sources.length === 1 ? "" : "s"}.`,
       "Extracted atomic claims with exact evidence offsets.",
+      "Ran independent support, time, authority, and contradiction checks.",
       "Verified complete claim coverage and reviewed the canonical brief.",
     ],
   };

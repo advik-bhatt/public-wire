@@ -22,7 +22,7 @@ async function hasCurrentPublicationFence(
   if (workflowAttestationEnforced()) {
     const descriptor = configuredReleaseDescriptor({
       model: process.env.PUBLIC_WIRE_ADK_MODEL || "gemini-2.5-flash",
-      promptVersion: process.env.PUBLIC_WIRE_PROMPT_VERSION || "2026-07-19.1",
+      promptVersion: process.env.PUBLIC_WIRE_PROMPT_VERSION || "2026-07-20.1",
       schemaVersion: process.env.PUBLIC_WIRE_SCHEMA_VERSION || "1",
       policyVersion: process.env.PUBLIC_WIRE_POLICY_VERSION || "2026-07-19.1",
     });

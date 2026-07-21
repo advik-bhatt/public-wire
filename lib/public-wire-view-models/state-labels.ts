@@ -52,7 +52,7 @@ export function eventCopy(event: PublicInvestigationEvent) {
     case "EVIDENCE_REPAIR_STARTED":
       return `Evidence repair ${event.safeParams.iteration} started for ${event.safeParams.targetClaimCount} claim${event.safeParams.targetClaimCount === 1 ? "" : "s"}.`;
     case "EVIDENCE_REPAIR_COMPLETED":
-      return `Evidence repair ${event.safeParams.iteration} captured ${event.safeParams.newSourceCount} new source${event.safeParams.newSourceCount === 1 ? "" : "s"}; outcome: ${event.safeParams.outcome.replaceAll("_", " ")}.`;
+      return `Evidence repair ${event.safeParams.iteration} captured ${event.safeParams.newSourceCount} new source${event.safeParams.newSourceCount === 1 ? "" : "s"}; ${event.safeParams.outcome === "new_evidence" ? "the complete claim set will be extracted and checked again" : `outcome: ${event.safeParams.outcome.replaceAll("_", " ")}`}.`;
     case "DRAFT_CREATED":
       return `${event.safeParams.revision ? "Revised draft" : "Draft"} ${event.safeParams.attempt} created from ${event.safeParams.materialClaimCount} material claim${event.safeParams.materialClaimCount === 1 ? "" : "s"}.`;
     case "EDITORIAL_HELD":

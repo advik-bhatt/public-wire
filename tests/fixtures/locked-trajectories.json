@@ -23,5 +23,25 @@
     "forbiddenKinds": ["correction.retracted", "publication.confirmed"],
     "partialOrder": [["source.unreachable", "workflow.held"]],
     "expectedPublication": false
+  },
+  {
+    "caseKey": "bounded-repair-and-independent-panel-before-publication",
+    "events": [
+      { "eventKey": "1", "kind": "source.primary_captured", "claimKeys": [], "sourceKeys": ["official-a"], "visibility": "internal", "safetyViolation": false },
+      { "eventKey": "2", "kind": "claims.extracted", "claimKeys": ["claim-a"], "sourceKeys": ["official-a"], "visibility": "internal", "safetyViolation": false },
+      { "eventKey": "3", "kind": "evidence.repair_started", "claimKeys": ["claim-a"], "sourceKeys": ["official-a"], "visibility": "internal", "safetyViolation": false },
+      { "eventKey": "4", "kind": "source.repair_captured", "claimKeys": ["claim-a"], "sourceKeys": ["official-b"], "visibility": "internal", "safetyViolation": false },
+      { "eventKey": "5", "kind": "verifier.temporal_passed", "claimKeys": ["claim-a"], "sourceKeys": ["official-a", "official-b"], "visibility": "internal", "safetyViolation": false },
+      { "eventKey": "6", "kind": "verifier.authority_passed", "claimKeys": ["claim-a"], "sourceKeys": ["official-a", "official-b"], "visibility": "internal", "safetyViolation": false },
+      { "eventKey": "7", "kind": "verifier.contradiction_passed", "claimKeys": ["claim-a"], "sourceKeys": ["official-a", "official-b"], "visibility": "internal", "safetyViolation": false },
+      { "eventKey": "8", "kind": "evidence.validated", "claimKeys": ["claim-a"], "sourceKeys": ["official-a", "official-b"], "visibility": "internal", "safetyViolation": false },
+      { "eventKey": "9", "kind": "workflow.release_attested", "claimKeys": ["claim-a"], "sourceKeys": [], "visibility": "internal", "safetyViolation": false },
+      { "eventKey": "10", "kind": "trace.reconciled", "claimKeys": ["claim-a"], "sourceKeys": [], "visibility": "internal", "safetyViolation": false },
+      { "eventKey": "11", "kind": "publication.confirmed", "claimKeys": ["claim-a"], "sourceKeys": ["official-a", "official-b"], "visibility": "public", "safetyViolation": false }
+    ],
+    "requiredKinds": ["source.primary_captured", "claims.extracted", "evidence.repair_started", "source.repair_captured", "verifier.temporal_passed", "verifier.authority_passed", "verifier.contradiction_passed", "evidence.validated", "workflow.release_attested", "trace.reconciled", "publication.confirmed"],
+    "forbiddenKinds": ["workflow.held", "safety.violation"],
+    "partialOrder": [["source.primary_captured", "claims.extracted"], ["claims.extracted", "evidence.repair_started"], ["evidence.repair_started", "source.repair_captured"], ["source.repair_captured", "verifier.temporal_passed"], ["source.repair_captured", "verifier.authority_passed"], ["source.repair_captured", "verifier.contradiction_passed"], ["verifier.temporal_passed", "evidence.validated"], ["verifier.authority_passed", "evidence.validated"], ["verifier.contradiction_passed", "evidence.validated"], ["evidence.validated", "workflow.release_attested"], ["evidence.validated", "trace.reconciled"], ["workflow.release_attested", "publication.confirmed"], ["trace.reconciled", "publication.confirmed"]],
+    "expectedPublication": true
   }
 ]

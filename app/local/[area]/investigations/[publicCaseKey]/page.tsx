@@ -8,6 +8,7 @@ import { ClaimLedger } from "@/components/public-wire/investigation/claim-ledger
 import { StageRail } from "@/components/public-wire/investigation/stage-rail";
 import { ActivityStream } from "@/components/public-wire/investigation/activity-stream";
 import { ChangeIntelligencePanel } from "@/components/public-wire/investigation/change-intelligence-panel";
+import { ReaderAuditPanel } from "@/components/public-wire/investigation/reader-audit-panel";
 import { StatusStamp } from "@/components/public-wire/shared/status-stamp";
 import { Timestamp } from "@/components/public-wire/shared/timestamp";
 import { DegradedBanner } from "@/components/public-wire/shared/degraded-banner";
@@ -159,6 +160,7 @@ export default async function InvestigationPage({ params }: Props) {
               </dl>
             </aside>
           </section>
+          <ReaderAuditPanel detail={detail} />
           {referenceRun && (
             <section aria-labelledby="trail-heading">
               <div className="section-heading">

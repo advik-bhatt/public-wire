@@ -71,7 +71,7 @@ function brief() {
         },
       ],
     },
-    source: { title: "Official notice", url: "https://example.gov/notice" },
+    sources: [{ title: "Official notice", url: "https://example.gov/notice" }],
   });
 }
 
@@ -123,5 +123,49 @@ describe("canonical publication readiness", () => {
     expect(civicBriefSlug("!!!", "brief-a")).toMatch(
       /^public-wire-brief-[a-f0-9]{8}$/,
     );
+  });
+
+  it("requires a captured source and deduplicates repeated URLs", () => {
+    const base = brief();
+    expect(() =>
+      buildCanonicalCivicBrief({
+        investigationId: "11111111-1111-4111-8111-111111111111",
+        revision: 1,
+        area: base.area,
+        category: base.category,
+        draft: {
+          headline: base.headline,
+          prose: base.summary,
+          usedClaimKeys: ["claim_hours"],
+        },
+        extraction: {
+          candidateTitle: base.headline,
+          whyItMatters: base.whyItMatters,
+          whoIsAffected: base.whoIsAffected,
+          claims: [],
+        },
+        sources: [],
+      }),
+    ).toThrow("PUBLIC_WIRE_BRIEF_SOURCE_REQUIRED");
+
+    const duplicated = buildCanonicalCivicBrief({
+      investigationId: "11111111-1111-4111-8111-111111111111",
+      revision: 1,
+      area: base.area,
+      category: base.category,
+      draft: {
+        headline: base.headline,
+        prose: base.summary,
+        usedClaimKeys: ["claim_hours"],
+      },
+      extraction: {
+        candidateTitle: base.headline,
+        whyItMatters: base.whyItMatters,
+        whoIsAffected: base.whoIsAffected,
+        claims: [],
+      },
+      sources: [base.sources[0], base.sources[0]],
+    });
+    expect(duplicated.sources).toHaveLength(1);
   });
 });

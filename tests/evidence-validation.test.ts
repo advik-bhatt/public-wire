@@ -29,7 +29,17 @@ function build(
   sourceUrl = artifact.sourceUrl,
   relation: "supports" | "contradicts" = "supports",
   outcome: "supported" | "disputed" = "supported",
+  options?: {
+    referenceArtifact?: SourceArtifact;
+    normalizedArtifacts?: Array<{
+      artifact: SourceArtifact;
+      text: string;
+      sourceAuthority: "official" | "public-secondary";
+    }>;
+    claimedAuthority?: "official" | "public-secondary";
+  },
 ) {
+  const referenceArtifact = options?.referenceArtifact ?? artifact;
   return buildValidatedEvidence({
     investigationId: artifact.investigationId,
     revision: 1,
@@ -37,10 +47,10 @@ function build(
     extractionEventId: randomUUID(),
     verificationEventId: randomUUID(),
     decisionEventId: randomUUID(),
-    normalizedArtifact: artifact,
-    normalizedText,
+    normalizedArtifacts: options?.normalizedArtifacts ?? [
+      { artifact, text: normalizedText, sourceAuthority: "official" },
+    ],
     allowedSourceHosts: ["example.gov"],
-    sourceAuthority: "official",
     extraction: {
       candidateTitle: "Town hall hours changed",
       whyItMatters: "Residents need the current opening time.",
@@ -53,14 +63,14 @@ function build(
           importance: "material",
           evidence: [
             {
-              artifactName: artifact.adkArtifactName,
-              artifactVersion: 0,
+              artifactName: referenceArtifact.adkArtifactName,
+              artifactVersion: referenceArtifact.adkArtifactVersion,
               sourceUrl,
               excerpt,
               startOffset: 0,
               endOffset: 21,
               relation,
-              authority: "official",
+              authority: options?.claimedAuthority ?? "official",
             },
           ],
         },
@@ -103,6 +113,62 @@ describe("deterministic evidence validation", () => {
     const sourceMismatch = build(normalizedText, "https://other.gov/notice");
     expect(sourceMismatch.allReferencesValid).toBe(false);
     expect(sourceMismatch.matrix.evidenceLinks).toHaveLength(0);
+  });
+
+  it("accepts an exact reference from any captured source in the packet", () => {
+    const secondArtifact: SourceArtifact = {
+      ...artifact,
+      artifactId: randomUUID(),
+      adkArtifactName: "sources/second/normalized.txt",
+      sourceId: "second",
+      sourceUrl: "https://example.gov/second-notice",
+      canonicalUrl: "https://example.gov/second-notice",
+      contentHash: "b".repeat(64),
+    };
+    const result = build(
+      normalizedText,
+      secondArtifact.sourceUrl,
+      "supports",
+      "supported",
+      {
+        referenceArtifact: secondArtifact,
+        normalizedArtifacts: [
+          { artifact, text: normalizedText, sourceAuthority: "official" },
+          {
+            artifact: secondArtifact,
+            text: normalizedText,
+            sourceAuthority: "official",
+          },
+        ],
+      },
+    );
+    expect(result.evidenceComplete).toBe(true);
+    expect(result.matrix.evidenceLinks[0].artifactId).toBe(
+      secondArtifact.artifactId,
+    );
+  });
+
+  it("rejects a model-claimed authority that differs from capture metadata", () => {
+    const result = build(
+      normalizedText,
+      artifact.sourceUrl,
+      "supports",
+      "supported",
+      { claimedAuthority: "public-secondary" },
+    );
+    expect(result.allReferencesValid).toBe(false);
+    expect(result.matrix.evidenceLinks).toHaveLength(0);
+  });
+
+  it("rejects an ambiguous packet with duplicate artifact identities", () => {
+    expect(() =>
+      build(normalizedText, artifact.sourceUrl, "supports", "supported", {
+        normalizedArtifacts: [
+          { artifact, text: normalizedText, sourceAuthority: "official" },
+          { artifact, text: normalizedText, sourceAuthority: "official" },
+        ],
+      }),
+    ).toThrow("PUBLIC_WIRE_DUPLICATE_EVIDENCE_ARTIFACT");
   });
 
   it("preserves a blocking contradiction as a typed decision", () => {

@@ -39,4 +39,43 @@ describe("bounded evidence repair", () => {
     expect(result.iterations).toBe(2);
     expect(search).toHaveBeenCalledTimes(2);
   });
+
+  it("preserves a prior addition when the next iteration is empty", async () => {
+    const search = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          contentHash: hash("new"),
+          canonicalUrl: "https://example.gov/new",
+        },
+      ])
+      .mockResolvedValueOnce([]);
+    const result = await runBoundedEvidenceRepair({
+      existingHashes: new Set(),
+      maxIterations: 2,
+      search,
+    });
+    expect(result.outcome).toBe("new_evidence");
+    expect(result.added).toHaveLength(1);
+    expect(search).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not accept candidates returned after cancellation", async () => {
+    const controller = new AbortController();
+    const result = await runBoundedEvidenceRepair({
+      existingHashes: new Set(),
+      maxIterations: 2,
+      signal: controller.signal,
+      search: async () => {
+        controller.abort();
+        return [
+          {
+            contentHash: hash("cancelled"),
+            canonicalUrl: "https://example.gov/cancelled",
+          },
+        ];
+      },
+    });
+    expect(result).toEqual({ outcome: "cancelled", iterations: 0, added: [] });
+  });
 });

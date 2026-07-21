@@ -13,6 +13,11 @@ import { assertSafePublicUrl } from "@/lib/adk/public-wire/plugins/source-safety
 
 type Extraction = z.infer<typeof extractorOutputSchema>;
 type Verification = z.infer<typeof verifierOutputSchema>;
+type EvidenceArtifact = {
+  artifact: SourceArtifact;
+  text: string;
+  sourceAuthority: "official" | "first-party" | "public-secondary" | "unknown";
+};
 
 function stableUuid(value: string) {
   const bytes = createHash("sha256").update(value).digest().subarray(0, 16);
@@ -26,6 +31,13 @@ function fingerprint(value: unknown) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+/**
+ * Canonical evidence trust boundary.
+ *
+ * ADK agents propose claims and citations; this deterministic function alone
+ * decides whether those references match a captured artifact byte-for-byte,
+ * use the captured source's authority, and cover every material claim.
+ */
 export function buildValidatedEvidence(params: {
   investigationId: string;
   revision: number;
@@ -33,10 +45,8 @@ export function buildValidatedEvidence(params: {
   extractionEventId: string;
   verificationEventId: string;
   decisionEventId: string;
-  normalizedArtifact: SourceArtifact;
-  normalizedText: string;
+  normalizedArtifacts: EvidenceArtifact[];
   allowedSourceHosts: string[];
-  sourceAuthority: "official" | "first-party" | "public-secondary" | "unknown";
   extraction: Extraction;
   verification: Verification;
   promptVersion: string;
@@ -45,6 +55,16 @@ export function buildValidatedEvidence(params: {
   workflowReady: boolean;
   verifiedAt: string;
 }) {
+  if (params.normalizedArtifacts.length === 0)
+    throw new Error("PUBLIC_WIRE_EVIDENCE_ARTIFACTS_REQUIRED");
+  const artifactByIdentity = new Map(
+    params.normalizedArtifacts.map((entry) => [
+      `${entry.artifact.adkArtifactName}\0${entry.artifact.adkArtifactVersion}\0${entry.artifact.sourceUrl}`,
+      entry,
+    ]),
+  );
+  if (artifactByIdentity.size !== params.normalizedArtifacts.length)
+    throw new Error("PUBLIC_WIRE_DUPLICATE_EVIDENCE_ARTIFACT");
   const verificationByKey = new Map(
     params.verification.claims.map((claim) => [claim.claimKey, claim]),
   );
@@ -72,10 +92,7 @@ export function buildValidatedEvidence(params: {
       endOffset: number;
       relation: "supports" | "contradicts" | "contextualizes";
       sourceAuthority:
-        | "official"
-        | "first-party"
-        | "public-secondary"
-        | "unknown";
+        "official" | "first-party" | "public-secondary" | "unknown";
       extractorEventId: string;
       verifierEventId: string;
       verifiedAt: string;
@@ -95,18 +112,22 @@ export function buildValidatedEvidence(params: {
       } catch {
         safeUrl = false;
       }
-      const exactArtifact =
-        reference.artifactName === params.normalizedArtifact.adkArtifactName &&
-        reference.artifactVersion ===
-          params.normalizedArtifact.adkArtifactVersion &&
-        reference.sourceUrl === params.normalizedArtifact.sourceUrl;
+      const matchedArtifact = artifactByIdentity.get(
+        `${reference.artifactName}\0${reference.artifactVersion}\0${reference.sourceUrl}`,
+      );
+      if (!safeUrl || !matchedArtifact) {
+        allReferencesValid = false;
+        return [];
+      }
       const exactExcerpt =
-        reference.endOffset <= params.normalizedText.length &&
-        params.normalizedText.slice(
+        reference.endOffset <= matchedArtifact.text.length &&
+        matchedArtifact.text.slice(
           reference.startOffset,
           reference.endOffset,
         ) === reference.excerpt;
-      if (!safeUrl || !exactArtifact || !exactExcerpt) {
+      const exactAuthority =
+        reference.authority === matchedArtifact.sourceAuthority;
+      if (!exactExcerpt || !exactAuthority) {
         allReferencesValid = false;
         return [];
       }
@@ -116,14 +137,14 @@ export function buildValidatedEvidence(params: {
             `${params.investigationId}:${params.revision}:evidence:${claim.claimKey}:${index}:${fingerprint(reference)}`,
           ),
           claimId,
-          artifactId: params.normalizedArtifact.artifactId,
-          artifactVersion: params.normalizedArtifact.adkArtifactVersion,
-          sourceUrl: params.normalizedArtifact.sourceUrl,
+          artifactId: matchedArtifact.artifact.artifactId,
+          artifactVersion: matchedArtifact.artifact.adkArtifactVersion,
+          sourceUrl: matchedArtifact.artifact.sourceUrl,
           supportingExcerpt: reference.excerpt,
           startOffset: reference.startOffset,
           endOffset: reference.endOffset,
           relation: reference.relation,
-          sourceAuthority: params.sourceAuthority,
+          sourceAuthority: matchedArtifact.sourceAuthority,
           extractorEventId: params.extractionEventId,
           verifierEventId: params.verificationEventId,
           verifiedAt: params.verifiedAt,

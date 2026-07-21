@@ -28,6 +28,11 @@ import {
   createFactualReviewerAgent,
   factualReviewerOutputSchema,
 } from "../agents/factual-reviewer";
+import {
+  createVerifierPanel,
+  perspectiveCoversExtraction,
+  readVerifierPanel,
+} from "../agents/verifier-panel";
 
 export type DeskOutcome = {
   outcome: "publish_ready" | "held";
@@ -141,6 +146,7 @@ class DeskWorkflow extends BaseAgent {
   constructor(
     private readonly extractor: LlmAgent,
     private readonly verifier: LlmAgent,
+    private readonly verifierPanel: BaseAgent,
     private readonly editor: LlmAgent,
     private readonly writer: LlmAgent,
     private readonly reviewer: LlmAgent,
@@ -149,7 +155,7 @@ class DeskWorkflow extends BaseAgent {
     super({
       name: "public_wire_desk_workflow",
       description: "Runs PublicWire's bounded evidence-first desk workflow.",
-      subAgents: [extractor, verifier, editor, writer, reviewer],
+      subAgents: [extractor, verifier, verifierPanel, editor, writer, reviewer],
     });
   }
 
@@ -185,6 +191,39 @@ class DeskWorkflow extends BaseAgent {
       });
       return;
     }
+
+    // Parallel agents propose independent judgments. Schema parsing, complete
+    // claim coverage, and the fail-closed branch below remain deterministic.
+    yield* this.verifierPanel.runAsync(context);
+    const panel = readVerifierPanel(context.session.state);
+    const panelComplete =
+      panel.success &&
+      perspectiveCoversExtraction(extraction.data, panel.data.temporal) &&
+      perspectiveCoversExtraction(extraction.data, panel.data.authority) &&
+      perspectiveCoversExtraction(extraction.data, panel.data.contradiction);
+    const temporalOrAuthorityFailure =
+      panel.success &&
+      [panel.data.temporal, panel.data.authority].some((perspective) =>
+        perspective.claims.some((claim) => claim.outcome === "fail"),
+      );
+    const contradictionFailure =
+      panel.success &&
+      panel.data.contradiction.claims.some((claim) => claim.outcome === "fail");
+    if (!panelComplete || temporalOrAuthorityFailure || contradictionFailure) {
+      if (panel.success) {
+        yield stateEvent(context, this.name, {
+          pw_verifier_panel: panel.data,
+        });
+      }
+      yield terminalEvent(context, this.name, {
+        outcome: "held",
+        reasonCode: contradictionFailure ? "CONTRADICTION" : "MISSING_EVIDENCE",
+      });
+      return;
+    }
+    yield stateEvent(context, this.name, {
+      pw_verifier_panel: panel.data,
+    });
 
     yield* this.editor.runAsync(context);
     const editorial = adkEditorialOutputSchema.safeParse(
@@ -289,6 +328,7 @@ export function createDeskWorkflow(model: Gemini, maxDraftRevisions = 0) {
   return new DeskWorkflow(
     extractor,
     verifier,
+    createVerifierPanel(model),
     editor,
     createWriterAgent(model),
     createFactualReviewerAgent(model),

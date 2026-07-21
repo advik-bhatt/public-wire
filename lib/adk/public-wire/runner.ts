@@ -12,6 +12,7 @@ import {
 import { resolve } from "node:path";
 import { createEditorialClassifier } from "./agents/editorial-classifier";
 import { createDissentResolverAgent } from "./agents/dissent-resolver";
+import { createGroundedSourceDiscoveryAgent } from "./agents/source-discovery";
 import { createDeskWorkflow } from "./workflows/desk-workflow";
 import type { PublicWireAdkConfig } from "./config";
 import { ExecutionBudgetPlugin } from "./plugins/execution-budget";
@@ -208,6 +209,68 @@ export async function createDissentShadowRunner(params: {
       jobAttemptId: params.identity.jobAttemptId,
       requestedRevision: params.identity.requestedRevision,
       pw_dissent_conflict: params.conflict,
+    },
+  });
+  return { runner, model, sessionService, artifactService };
+}
+
+export async function createGroundedDiscoveryRunner(params: {
+  config: PublicWireAdkConfig;
+  identity: InvocationIdentity;
+  userId: string;
+  sessionId: string;
+  eventSink: EventSink;
+  allowedSourceHosts: string[];
+}) {
+  if (!params.config.geminiApiKey)
+    throw new Error("GEMINI_API_KEY is required for grounded discovery");
+  const model = new Gemini({
+    apiKey: params.config.geminiApiKey,
+    model: params.config.model,
+    vertexai: false,
+  });
+  if (model.apiBackend !== GoogleLLMVariant.GEMINI_API)
+    throw new Error("PublicWire ADK must use the Gemini Developer API");
+  const sessionService = await createSessionService(params.config);
+  const artifactService = new FileArtifactService(
+    resolve(process.cwd(), params.config.artifactDirectory),
+  );
+  const runner = new Runner({
+    appName: PUBLIC_WIRE_ADK_APP_NAME,
+    agent: createGroundedSourceDiscoveryAgent(model),
+    sessionService,
+    artifactService,
+    plugins: [
+      new ExecutionBudgetPlugin({
+        ...params.config.budgets,
+        modelCalls: Math.min(2, params.config.budgets.modelCalls),
+        toolCalls: Math.min(2, params.config.budgets.toolCalls),
+      }),
+      new SourceSafetyPlugin(params.allowedSourceHosts),
+      new TrajectoryPlugin({
+        identity: params.identity,
+        sink: params.eventSink,
+        model: params.config.model,
+      }),
+      new ProvenancePlugin({
+        config: params.config,
+        identity: params.identity,
+        appName: PUBLIC_WIRE_ADK_APP_NAME,
+        userId: params.userId,
+        sessionId: params.sessionId,
+        sink: params.eventSink,
+      }),
+    ],
+  });
+  await sessionService.getOrCreateSession({
+    appName: PUBLIC_WIRE_ADK_APP_NAME,
+    userId: params.userId,
+    sessionId: params.sessionId,
+    state: {
+      investigationId: params.identity.investigationId,
+      jobId: params.identity.jobId,
+      jobAttemptId: params.identity.jobAttemptId,
+      requestedRevision: params.identity.requestedRevision,
     },
   });
   return { runner, model, sessionService, artifactService };

@@ -57,6 +57,15 @@ const extraction = {
   ],
 };
 
+function passingVerifierPanel(claimKey: string) {
+  return (["temporal", "authority", "contradiction"] as const).map(
+    (perspective) => ({
+      perspective,
+      claims: [{ claimKey, outcome: "pass", issueCodes: [] }],
+    }),
+  );
+}
+
 describe("verification coverage", () => {
   it("requires exactly one result for every extracted claim", () => {
     expect(
@@ -200,6 +209,7 @@ describe("verification coverage", () => {
         ],
         blockingContradiction: false,
       },
+      ...passingVerifierPanel("claim_access"),
       {
         outcome: "publish",
         classification: "resident-relevant",
@@ -270,11 +280,13 @@ describe("verification coverage", () => {
         headline: "Jersey Avenue utility work includes access directions",
       }),
     );
-    expect(model.instructions[5]).toContain('"outcome":"fail"');
-    expect(model.instructions[5]).toContain(
+    expect(model.instructions[2]).toContain("CAPTURED ARTIFACT PACKET");
+    expect(model.instructions[2]).toContain("test");
+    expect(model.instructions[8]).toContain('"outcome":"fail"');
+    expect(model.instructions[8]).toContain(
       '"span":"All access will be blocked"',
     );
-    expect(model.instructions[5]).toContain(
+    expect(model.instructions[8]).toContain(
       '"headline":"Jersey Avenue will close to all traffic"',
     );
     expect(
@@ -322,6 +334,7 @@ describe("verification coverage", () => {
         ],
         blockingContradiction: false,
       },
+      ...passingVerifierPanel("claim_proposal"),
       {
         outcome: "publish",
         classification: "resident-relevant",
@@ -426,6 +439,7 @@ describe("verification coverage", () => {
         ],
         blockingContradiction: false,
       },
+      ...passingVerifierPanel("claim_known"),
       {
         outcome: "publish",
         classification: "resident-relevant",

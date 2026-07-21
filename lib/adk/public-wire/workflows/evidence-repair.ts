@@ -25,16 +25,23 @@ export async function runBoundedEvidenceRepair(params: {
         iterations: iteration - 1,
         added,
       };
-    const candidates = z
-      .array(repairArtifactSchema)
-      .max(20)
-      .parse(await params.search(iteration, params.signal));
+    const searched = await params.search(iteration, params.signal);
+    if (params.signal?.aborted)
+      return {
+        outcome: "cancelled" as const,
+        iterations: iteration - 1,
+        added,
+      };
+    const candidates = z.array(repairArtifactSchema).max(20).parse(searched);
     const novel = candidates.filter(
       (artifact) => !params.existingHashes.has(artifact.contentHash),
     );
     if (novel.length === 0)
       return {
-        outcome: "no_new_evidence" as const,
+        outcome:
+          added.length > 0
+            ? ("new_evidence" as const)
+            : ("no_new_evidence" as const),
         iterations: iteration,
         added,
       };

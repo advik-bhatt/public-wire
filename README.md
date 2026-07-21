@@ -11,7 +11,7 @@ Its governing rule is simple: **models propose; deterministic code owns evidence
 | Concern | Implementation | Authority |
 |---|---|---|
 | Web and API | Next.js 16, React 19, server components, route handlers | Serves product views and admits work; never runs an investigation inline |
-| Orchestration | Google ADK `1.3.0`, custom `BaseAgent`, five schema-bound `LlmAgent`s | Coordinates model work; cannot publish or grant source authority |
+| Orchestration | Google ADK `1.3.0`, custom `BaseAgent`, `ParallelAgent`, and eight schema-bound desk specialists | Coordinates model work; cannot publish or grant source authority |
 | Model backend | Gemini Developer API via explicit `Gemini({ vertexai: false })` | Produces structured proposals; no Vertex AI dependency |
 | Durable control plane | PostgreSQL jobs, leases, attempts, evidence, events, projections, gates | Canonical product state |
 | Discovery and capture | Nimble discovery followed by an independent allowlisted HTTPS fetch | Discovery suggests URLs; only captured bytes become evidence |
@@ -28,7 +28,9 @@ Its governing rule is simple: **models propose; deterministic code owns evidence
 
 ## Product experience
 
-The product leads with the resident answer, then progressively reveals what Public Wire combined, what its agents added, the exact evidence path, and the deterministic decision rules. The reader-audit workbench provides three interactive views:
+The product leads with the resident answer, then progressively reveals what Public Wire combined, what its agents added, the exact evidence path, and the deterministic decision rules. Each case file also includes an interactive, record-bound question console. It answers four reader questions without generating new facts: what supports this, what the agents caught, what changed, and why the result matters.
+
+The edition-level reader-audit workbench provides three interactive views:
 
 - **Resident answer:** bottom line, new facts, concrete actions, known unknowns, and traceable workflow contributions;
 - **Source network:** animated source → verified-claim → resident-answer paths with direct official-page links;
@@ -66,6 +68,7 @@ flowchart LR
     subgraph worker["Investigation worker"]
         lease["Lease and attempt manager"]
         discover["Nimble discovery"]
+        grounded["ADK Google Search grounding\nlead discovery only"]
         fetch["Policy-enforced direct fetch"]
         desk["Google ADK desk"]
         validate["Deterministic evidence checks"]
@@ -82,6 +85,7 @@ flowchart LR
 
     lease <--> pg
     lease --> discover --> fetch --> artifacts
+    desk -- "missing evidence" --> grounded --> fetch
     artifacts --> desk <--> gemini
     desk --> validate --> pg
     pg --> outbox -. "dispatcher required" .-> telemetry
@@ -177,7 +181,7 @@ The runner rejects any backend other than `GoogleLLMVariant.GEMINI_API`.
 
 ### Workflow and outputs
 
-`DeskWorkflow` is a custom ADK `BaseAgent`. It owns conditional flow; five `LlmAgent` specialists own narrow structured outputs.
+`DeskWorkflow` is a custom ADK `BaseAgent`. It owns conditional flow; eight `LlmAgent` specialists own narrow structured outputs. After the primary support verifier passes, a `ParallelAgent` runs temporal, source-authority, and contradiction perspectives independently. The application requires exact claim-set coverage from every perspective.
 
 ```mermaid
 flowchart TD
@@ -185,6 +189,8 @@ flowchart TD
     extract["Extractor\npw_extraction"]
     verify["Claim verifier\npw_verification"]
     coverage{"Exact claim-set coverage\nand all supported?"}
+    panel["Parallel verifier panel\ntime · authority · contradiction"]
+    panelGate{"Every perspective covers\nevery claim and passes?"}
     edit["Editorial classifier\npw_editorial"]
     decision{"Outcome is publish?"}
     write["Writer\npw_draft"]
@@ -196,7 +202,9 @@ flowchart TD
 
     source --> extract --> verify --> coverage
     coverage -- "no" --> held
-    coverage -- "yes" --> edit --> decision
+    coverage -- "yes" --> panel --> panelGate
+    panelGate -- "no" --> held
+    panelGate -- "yes" --> edit --> decision
     decision -- "no" --> held
     decision -- "yes" --> write --> review --> pass
     pass -- "no" --> budget
@@ -209,6 +217,7 @@ flowchart TD
 |---|---|---|
 | Extract | Candidate context, atomic claims, importance, exact evidence references | Unique claim keys and bounded reference shapes; missing material evidence remains explicit |
 | Verify | One outcome and issue-code set per claim | Returned keys must equal the extracted key set exactly |
+| Verifier panel | Independent time, authority, and contradiction result for every claim | Perspective identity and complete claim coverage are enforced; any failure holds |
 | Classify | `publish`, `hold`, `reject`, or `needs_evidence` plus coded reasons | Only `publish` advances |
 | Write | Headline, prose, `usedClaimKeys` | Every used key must exist in the current extraction |
 | Review | `pass`/`fail`, factual issues, separate style warnings | A pass cannot contain factual issues |
@@ -226,15 +235,17 @@ Every runner installs:
 - `ProvenancePlugin` to hash/redact ADK content and persist correlated event envelopes;
 - `TrajectoryPlugin` to persist content-free run, agent, model, and tool spans without prompts, bodies, secrets, or hidden reasoning.
 
-The ADK invocation defaults to 12 model calls, 24 tool calls, and a 45-second callback budget. Direct Mentor and Lapdog review calls are bounded by the worker deadline but sit outside those ADK plugin counters. Source acquisition deliberately runs in the worker before ADK, keeping network access outside the agent graph. Read-only `FunctionTool` implementations and a two-iteration evidence-repair primitive are available for bounded workflow extensions; the canonical desk currently holds and projects missing evidence instead of invoking that repair primitive.
+The ADK invocation defaults to 12 model calls, 24 tool calls, and a 45-second callback budget. Direct Mentor and Lapdog review calls are bounded by the worker deadline but sit outside those ADK plugin counters. Initial source acquisition and all evidence-producing fetches remain worker-owned network operations. When the desk returns `MISSING_EVIDENCE`, the canonical worker invokes a maximum-two-iteration recovery loop. Nimble supplies structured candidates; a dedicated ADK `LlmAgent` with Google Search grounding supplies current official-page leads when needed. Leads never count as evidence: the worker re-applies the HTTPS allowlist, DNS and redirect protections, byte limits, canonical capture, artifact versioning, and novel normalized-content-hash check before rerunning the complete desk.
+
+Repair candidates remain in memory until the bounded search accepts them. Only then does the worker begin a lease-fenced capture commit. Cancellation before acceptance creates no artifact or source observation; cancellation after commit begins preserves the accepted capture as internal attempt history but blocks evidence, projection, and publication writes for that attempt.
 
 ### Agentic loop status
 
 | Capability | Design guarantee |
 |---|---|
-| Extract → verify → classify → write → factual review | Fixed, schema-validated specialist sequence |
+| Extract → verify → parallel panel → classify → write → factual review | Schema-validated specialist sequence with independent time, authority, and contradiction perspectives |
 | Draft correction | One reviewer-directed rewrite maximum; full review reruns and a second failure holds |
-| Evidence repair | Implemented two-iteration, novel-content-hash primitive; not invoked by the canonical desk yet |
+| Evidence repair | Canonical maximum-two-iteration loop; targeted material gaps, grounded discovery leads, novel captured hashes, then complete desk rerun |
 | Model and tool execution | ADK callback counters plus a worker-owned absolute deadline |
 | Failure recovery | Durable attempts, renewable leases, bounded retries, and dead-letter state |
 | Editorial holds | Explicit terminal outcomes with coded reasons; no silent fallback |
@@ -470,7 +481,7 @@ The ADK event outbox writes independent destination rows for `clickhouse`, `data
 | Projection revision, cursor, stream epoch | Snapshot and public event contract |
 | Runtime-control version | Durable PostgreSQL control record |
 
-Default contracts are prompt `2026-07-19.1`, schema `1`, policy `2026-07-19.1`, and model `gemini-2.5-flash`.
+Default contracts are prompt `2026-07-20.1`, schema `1`, policy `2026-07-19.1`, and model `gemini-2.5-flash`.
 
 ### Core dependency versions
 
@@ -494,7 +505,7 @@ npm test
 npm run build
 ```
 
-The suite covers ADK/Gemini compatibility, serialized instruction state, bounded draft revision and re-review, configuration fail-closed behavior, evidence-repair bounds, exact claim/evidence validation, SSRF/redirect/size rules, legacy safety, canonical publication readiness, source-refresh retry and packet-completeness invariants, V1/V2 projection boundaries, release promotion coverage, bounded publication retries and post-provider fencing, publication hashes and gates, and verifier set coverage. Live Postgres migration/lease integration, provider-backed evaluation runs, and browser interaction automation remain deployment-hardening work; the checked-in trajectory corpus is deterministic and is labeled accordingly.
+The suite covers ADK/Gemini compatibility, serialized instruction state, bounded draft revision and re-review, independent verifier-panel identity and coverage, configuration fail-closed behavior, evidence-repair bounds, multi-source exact claim/evidence validation, source-authority matching, SSRF/redirect/size rules, legacy safety, canonical publication readiness, source-refresh retry and packet-completeness invariants, V1/V2 projection boundaries, release promotion coverage, bounded publication retries and post-provider fencing, publication hashes and gates, and reader-audit derivation. The locked trajectory corpus includes a successful recovery path that requires repair capture, all three verifier perspectives, release attestation, and trace reconciliation before publication. Live Postgres migration/lease integration and provider-backed evaluation runs remain deployment-hardening work.
 
 CI uses Node `24.14` and npm `11.8`, then runs install, lint, typecheck, tests, and the production build.
 
